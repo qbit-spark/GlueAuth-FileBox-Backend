@@ -1,0 +1,204 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Account Verification</title>
+    <!--[if mso]>
+    <noscript>
+        <xml>
+            <o:OfficeDocumentSettings>
+                <o:PixelsPerInch>96</o:PixelsPerInch>
+            </o:OfficeDocumentSettings>
+        </xml>
+    </noscript>
+    <![endif]-->
+</head>
+<body style="margin: 0; padding: 0; font-family: Arial, sans-serif; background-color: #f4f4f4;">
+<!-- Main Container -->
+<table width="100%" cellpadding="0" cellspacing="0" border="0" style="background-color: #f4f4f4; padding: 20px 0;">
+    <tr>
+        <td align="center">
+            <!-- Email Content Table -->
+            <table width="600" cellpadding="0" cellspacing="0" border="0" style="background-color: #ffffff; border-radius: 8px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); max-width: 600px;">
+
+                <!-- Header -->
+                <tr>
+                    <td style="background-color: #2196F3; padding: 40px 30px; text-align: center; border-radius: 8px 8px 0 0;">
+                        <table width="100%" cellpadding="0" cellspacing="0" border="0">
+                            <tr>
+                                <td align="center">
+                                    <!-- Logo/Icon -->
+                                    <div style="width: 60px; height: 60px; background-color: rgba(255,255,255,0.2); border-radius: 12px; margin: 0 auto 20px; display: flex; align-items: center; justify-content: center; font-size: 24px; font-weight: bold; color: white;">
+                                        BW
+                                    </div>
+                                    <h1 style="color: white; margin: 0; font-size: 28px; font-weight: 700;" th:text="${emailHeader}">
+                                        Account Verification
+                                    </h1>
+                                    <p style="color: rgba(255,255,255,0.9); margin: 10px 0 0; font-size: 16px;">
+                                        Verify your email to get started
+                                    </p>
+                                </td>
+                            </tr>
+                        </table>
+                    </td>
+                </tr>
+
+                <!-- Content Body -->
+                <tr>
+                    <td style="padding: 40px 30px;">
+                        <table width="100%" cellpadding="0" cellspacing="0" border="0">
+                            <!-- Greeting -->
+                            <tr>
+                                <td style="padding-bottom: 20px;">
+                                    <h2 style="color: #2c3e50; margin: 0; font-size: 20px; font-weight: 600;">
+                                        Hi <span th:text="${userName}">User</span>!
+                                    </h2>
+                                </td>
+                            </tr>
+
+                            <!-- Instruction Message -->
+                            <tr>
+                                <td style="padding-bottom: 30px;">
+                                    <p style="color: #555; margin: 0; font-size: 16px; line-height: 1.6;" th:text="${instructionText}">
+                                        Please use the verification code below to complete your account setup.
+                                    </p>
+                                </td>
+                            </tr>
+
+                            <!-- OTP Code Card -->
+                            <tr>
+                                <td style="padding-bottom: 30px;">
+                                    <table width="100%" cellpadding="0" cellspacing="0" border="0" style="background: linear-gradient(135deg, #f8f9fa 0%, #e9ecef 100%); border-radius: 12px; border: 2px solid #4CAF50;">
+                                        <tr>
+                                            <td style="padding: 30px; text-align: center;">
+                                                <h3 style="color: #2c3e50; margin: 0 0 15px 0; font-size: 18px; font-weight: 600;">
+                                                    Your Verification Code
+                                                </h3>
+
+                                                <!-- OTP Code Display -->
+                                                <div style="background-color: white; border: 2px dashed #4CAF50; border-radius: 8px; padding: 20px; margin: 15px 0;">
+                                                        <span style="font-size: 32px; font-weight: bold; color: #4CAF50; font-family: 'Courier New', monospace; letter-spacing: 8px;" th:text="${otpCode}">
+                                                            123456
+                                                        </span>
+                                                </div>
+
+                                                <p style="color: #666; margin: 15px 0 0; font-size: 14px;">
+                                                    Enter this code in your application to verify your email
+                                                </p>
+                                            </td>
+                                        </tr>
+                                    </table>
+                                </td>
+                            </tr>
+
+                            <!-- Security Notice -->
+                            <tr>
+                                <td style="padding-bottom: 30px;">
+                                    <table width="100%" cellpadding="0" cellspacing="0" border="0" style="background-color: #fff3cd; border: 1px solid #ffeaa7; border-radius: 8px;">
+                                        <tr>
+                                            <td style="padding: 20px;">
+                                                <table width="100%" cellpadding="0" cellspacing="0" border="0">
+                                                    <tr>
+                                                        <td style="width: 30px; vertical-align: top;">
+                                                            <span style="font-size: 20px;">⚠️</span>
+                                                        </td>
+                                                        <td style="vertical-align: top;">
+                                                            <h4 style="color: #856404; margin: 0 0 10px 0; font-size: 16px; font-weight: 600;">
+                                                                Important Security Information
+                                                            </h4>
+                                                            <ul style="color: #856404; margin: 0; padding-left: 15px; font-size: 14px; line-height: 1.5;">
+                                                                <li>This code is <strong>valid for 10 minutes only</strong></li>
+                                                                <li>Never share this code with anyone</li>
+                                                                <li>If you didn't request this, please ignore this email</li>
+                                                                <li>BuildWise will never ask for this code via phone or email</li>
+                                                            </ul>
+                                                        </td>
+                                                    </tr>
+                                                </table>
+                                            </td>
+                                        </tr>
+                                    </table>
+                                </td>
+                            </tr>
+
+                            <!-- Instructions -->
+                            <tr>
+                                <td style="padding-bottom: 20px;">
+                                    <table width="100%" cellpadding="0" cellspacing="0" border="0" style="background-color: #f8f9fa; border-radius: 8px;">
+                                        <tr>
+                                            <td style="padding: 20px;">
+                                                <h4 style="color: #2c3e50; margin: 0 0 15px 0; font-size: 16px; font-weight: 600;">
+                                                    How to use this code:
+                                                </h4>
+
+                                                <table width="100%" cellpadding="0" cellspacing="0" border="0">
+                                                    <tr>
+                                                        <td style="padding: 5px 0;">
+                                                            <span style="color: #4CAF50; font-weight: bold; margin-right: 10px;">1.</span>
+                                                            <span style="color: #4a5568; font-size: 14px;">Return to the BuildWise application</span>
+                                                        </td>
+                                                    </tr>
+                                                    <tr>
+                                                        <td style="padding: 5px 0;">
+                                                            <span style="color: #4CAF50; font-weight: bold; margin-right: 10px;">2.</span>
+                                                            <span style="color: #4a5568; font-size: 14px;">Enter the 6-digit verification code above</span>
+                                                        </td>
+                                                    </tr>
+                                                    <tr>
+                                                        <td style="padding: 5px 0;">
+                                                            <span style="color: #4CAF50; font-weight: bold; margin-right: 10px;">3.</span>
+                                                            <span style="color: #4a5568; font-size: 14px;">Click "Verify" to complete your account setup</span>
+                                                        </td>
+                                                    </tr>
+                                                </table>
+                                            </td>
+                                        </tr>
+                                    </table>
+                                </td>
+                            </tr>
+
+                            <!-- Help Section -->
+                            <tr>
+                                <td style="text-align: center;">
+                                    <p style="color: #666; margin: 0; font-size: 14px; line-height: 1.6;">
+                                        Having trouble? Contact our support team for assistance.<br>
+                                        We're here to help you get started with BuildWise!
+                                    </p>
+                                </td>
+                            </tr>
+                        </table>
+                    </td>
+                </tr>
+
+                <!-- Footer -->
+                <tr>
+                    <td style="background-color: #f8f9fa; padding: 30px; text-align: center; border-top: 1px solid #e2e8f0; border-radius: 0 0 8px 8px;">
+                        <p style="color: #4a5568; margin: 0 0 15px; font-size: 14px; font-weight: bold;">
+                            Thank you for choosing BuildWise!
+                        </p>
+                        <p style="color: #718096; margin: 0; font-size: 14px; line-height: 1.6;">
+                            This is an automated security notification from BuildWise Project Management.<br>
+                            If you didn't request this verification, please ignore this email.
+                        </p>
+                        <table cellpadding="0" cellspacing="0" border="0" style="margin: 15px auto 0;">
+                            <tr>
+                                <td style="padding: 0 10px;">
+                                    <a href="#" style="color: #2196F3; text-decoration: none; font-size: 14px; font-weight: 500;">Help Center</a>
+                                </td>
+                                <td style="padding: 0 10px;">
+                                    <a href="#" style="color: #2196F3; text-decoration: none; font-size: 14px; font-weight: 500;">Contact Support</a>
+                                </td>
+                                <td style="padding: 0 10px;">
+                                    <a href="#" style="color: #FF6347; text-decoration: none; font-size: 14px; font-weight: 500;">Privacy Policy</a>
+                                </td>
+                            </tr>
+                        </table>
+                    </td>
+                </tr>
+            </table>
+        </td>
+    </tr>
+</table>
+</body>
+</html>
