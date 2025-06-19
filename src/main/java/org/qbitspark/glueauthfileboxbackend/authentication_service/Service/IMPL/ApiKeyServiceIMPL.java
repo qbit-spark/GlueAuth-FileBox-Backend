@@ -87,6 +87,7 @@ public class ApiKeyServiceIMPL implements ApiKeyService {
                 .createdAt(savedEntity.getCreatedAt())
                 .build();
     }
+
     @Override
     public ApiKeyEntity getApiKeyById(UUID apiKeyId) throws ItemNotFoundException {
 
@@ -129,7 +130,6 @@ public class ApiKeyServiceIMPL implements ApiKeyService {
         Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
         return extractAccount(authentication);
     }
-
 
     private AccountEntity extractAccount(Authentication authentication) throws ItemNotFoundException {
         if (authentication != null && authentication.isAuthenticated()) {
