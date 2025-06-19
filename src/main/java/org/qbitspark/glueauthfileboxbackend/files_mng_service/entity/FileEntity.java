@@ -52,11 +52,4 @@ public class FileEntity {
     @UpdateTimestamp
     private LocalDateTime updatedAt;
 
-    // Helper method to get a full file path
-    public String getFullPath() {
-        if (folder == null) {
-            return fileName;
-        }
-        return folder.getFullPath() + "/" + fileName;
-    }
 }

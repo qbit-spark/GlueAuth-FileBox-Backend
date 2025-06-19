@@ -6,9 +6,12 @@ import org.qbitspark.glueauthfileboxbackend.authentication_service.Repository.Ac
 import org.qbitspark.glueauthfileboxbackend.authentication_service.entity.AccountEntity;
 import org.qbitspark.glueauthfileboxbackend.files_mng_service.entity.FileEntity;
 import org.qbitspark.glueauthfileboxbackend.files_mng_service.entity.FolderEntity;
+import org.qbitspark.glueauthfileboxbackend.files_mng_service.enums.UploadStage;
 import org.qbitspark.glueauthfileboxbackend.files_mng_service.enums.VirusScanStatus;
+import org.qbitspark.glueauthfileboxbackend.files_mng_service.payload.FileData;
 import org.qbitspark.glueauthfileboxbackend.files_mng_service.payload.FileMetadata;
 import org.qbitspark.glueauthfileboxbackend.files_mng_service.payload.FileUploadResponse;
+import org.qbitspark.glueauthfileboxbackend.files_mng_service.payload.UploadStatus;
 import org.qbitspark.glueauthfileboxbackend.files_mng_service.repo.FileRepository;
 import org.qbitspark.glueauthfileboxbackend.files_mng_service.repo.FolderRepository;
 import org.qbitspark.glueauthfileboxbackend.globeadvice.exceptions.ItemNotFoundException;
@@ -18,6 +21,7 @@ import org.qbitspark.glueauthfileboxbackend.minio_service.service.MinioService;
 import org.qbitspark.glueauthfileboxbackend.virus_scanner_service.config.VirusScanConfig;
 import org.qbitspark.glueauthfileboxbackend.virus_scanner_service.payload.VirusScanResult;
 import org.qbitspark.glueauthfileboxbackend.virus_scanner_service.service.VirusScanService;
+import org.springframework.scheduling.annotation.Async;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.security.core.userdetails.UserDetails;
@@ -25,7 +29,11 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.multipart.MultipartFile;
 
+import java.time.LocalDateTime;
+import java.util.Map;
 import java.util.UUID;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ConcurrentHashMap;
 
 @Service
 @RequiredArgsConstructor
@@ -38,7 +46,7 @@ public class FileServiceImpl implements FileService {
     private final MinioService minioService;
     private final VirusScanService virusScanService;
     private final VirusScanConfig virusScanConfig;
-
+    private final Map<String, UploadStatus> uploadStatuses = new ConcurrentHashMap<>();
 
     @Override
     @Transactional
@@ -60,7 +68,193 @@ public class FileServiceImpl implements FileService {
         return processFileUpload(metadata, file, scanStatus);
     }
 
-    // Extract virus scanning logic
+
+
+    @Async("fileUploadExecutor")
+    @Transactional
+    public CompletableFuture<FileUploadResponse> uploadFileAsync(UUID folderId, FileData fileData, String uploadId, UUID userId, String folderPath) {
+
+        return CompletableFuture.supplyAsync(() -> {
+            try {
+                return processAsyncUpload(folderId, fileData, uploadId, userId, folderPath);
+            } catch (Exception e) {
+                handleUploadFailure(uploadId, fileData.getOriginalFileName(), e);
+                throw new RuntimeException("Async upload failed: " + e.getMessage(), e);
+            }
+        });
+    }
+
+    private FileUploadResponse processAsyncUpload(UUID folderId, FileData fileData, String uploadId, UUID userId, String folderPath) {
+
+        updateUploadStatus(uploadId, "VALIDATING", 10, "Starting file validation...", fileData.getOriginalFileName());
+        log.info("Starting async upload for file: {} ({} bytes)", fileData.getOriginalFileName(), fileData.getSize());
+
+        // Step 1: File Validation (10-20%)
+        validateFileData(fileData);
+        updateUploadStatus(uploadId, "VALIDATING", 20, "File validation completed ✓", fileData.getOriginalFileName());
+
+        // Step 2: Virus Scanning (20-50%)
+        VirusScanStatus scanStatus = performVirusScanWithProgress(fileData, uploadId);
+        updateUploadStatus(uploadId, "VIRUS_SCANNING", 50, "Virus scan completed: " + scanStatus + " ✓", fileData.getOriginalFileName());
+
+        // Step 3: File Name Processing (50-60%)
+        updateUploadStatus(uploadId, "PREPARING", 55, "Preparing upload...", fileData.getOriginalFileName());
+
+        FolderEntity folder = createFolderReference(folderId);
+        String finalFileName = handleDuplicateFileName(userId, fileData.getOriginalFileName(), folderId);
+        boolean wasRenamed = !finalFileName.equals(fileData.getOriginalFileName());
+
+        updateUploadStatus(uploadId, "PREPARING", 60, "File prepared: " + finalFileName, fileData.getOriginalFileName());
+
+        // Step 4: MinIO Upload (60-90%)
+        String minioKey = uploadToStorage(userId, folderPath, finalFileName, fileData, uploadId);
+        updateUploadStatus(uploadId, "UPLOADING", 90, "Storage upload completed ✓", fileData.getOriginalFileName());
+
+        // Step 5: Database Save (90-95%)
+        FileEntity savedFile = saveToDatabase(fileData, userId, folder, finalFileName, scanStatus, minioKey, uploadId);
+        updateUploadStatus(uploadId, "SAVING", 95, "File record saved ✓", fileData.getOriginalFileName());
+
+        // Step 6: Build Response (95-100%)
+        FileUploadResponse response = buildUploadResponse(savedFile, folder, folderPath, wasRenamed, fileData.getOriginalFileName(), finalFileName);
+
+        markUploadCompleted(uploadId, response, "Upload completed successfully! ✅");
+        log.info("Async upload completed successfully for: {}", fileData.getOriginalFileName());
+
+        return response;
+    }
+
+
+
+    // Helper Methods
+
+    private void validateFileData(FileData fileData) {
+        if (fileData.isEmpty()) {
+            throw new RuntimeException("File is empty");
+        }
+
+        if (fileData.getOriginalFileName() == null || fileData.getOriginalFileName().trim().isEmpty()) {
+            throw new RuntimeException("File name is required");
+        }
+
+        // Size limit check (100MB)
+        long maxSize = 100 * 1024 * 1024;
+        if (fileData.getSize() > maxSize) {
+            throw new RuntimeException("File size exceeds maximum limit of 100MB");
+        }
+
+        // Content type validation
+        String contentType = fileData.getContentType();
+        if (contentType != null && contentType.toLowerCase().contains("executable")) {
+            throw new RuntimeException("Executable files are not allowed");
+        }
+    }
+
+
+    private VirusScanStatus performVirusScanWithProgress(FileData fileData, String uploadId) {
+        if (!virusScanConfig.isEnabled()) {
+            updateUploadStatus(uploadId, "VIRUS_SCANNING", 45, "Virus scanning disabled", fileData.getOriginalFileName());
+            return VirusScanStatus.SKIPPED;
+        }
+
+        try {
+            updateUploadStatus(uploadId, "VIRUS_SCANNING", 25, "Initializing virus scanner...", fileData.getOriginalFileName());
+            updateUploadStatus(uploadId, "VIRUS_SCANNING", 35, "Scanning file content...", fileData.getOriginalFileName());
+
+            // Use existing scanFileContent method
+            VirusScanResult result = virusScanService.scanFileContent(fileData.getContent(), fileData.getOriginalFileName());
+
+            if (result.getStatus() == VirusScanStatus.INFECTED) {
+                throw new SecurityException("File rejected: " + result.getMessage());
+            }
+
+            updateUploadStatus(uploadId, "VIRUS_SCANNING", 45, "Analyzing scan results...", fileData.getOriginalFileName());
+            return result.getStatus();
+
+        } catch (VirusScanException e) {
+            if (e.getMessage().contains("TIMED OUT") || e.getMessage().contains("timeout")) {
+                updateUploadStatus(uploadId, "VIRUS_SCANNING", 45, "Virus scan timed out - proceeding", fileData.getOriginalFileName());
+                return VirusScanStatus.SKIPPED;
+            }
+
+            if (virusScanConfig.isFailOnUnavailable()) {
+                throw new SecurityException("Virus scan error: " + e.getMessage());
+            } else {
+                updateUploadStatus(uploadId, "VIRUS_SCANNING", 45, "Virus scan failed - proceeding", fileData.getOriginalFileName());
+                return VirusScanStatus.SKIPPED;
+            }
+        }
+    }
+
+
+    private FolderEntity createFolderReference(UUID folderId) {
+        if (folderId == null) {
+            return null;
+        }
+
+        FolderEntity folder = new FolderEntity();
+        folder.setFolderId(folderId);
+        return folder;
+    }
+
+    private String uploadToStorage(UUID userId, String folderPath, String finalFileName, FileData fileData, String uploadId) {
+        updateUploadStatus(uploadId, "UPLOADING", 65, "Connecting to storage...", fileData.getOriginalFileName());
+        updateUploadStatus(uploadId, "UPLOADING", 70, "Uploading to storage...", fileData.getOriginalFileName());
+
+        String minioKey = minioService.uploadFile(userId, folderPath, finalFileName,
+                fileData.getInputStream(), fileData.getSize(), fileData.getContentType());
+
+        if (minioKey == null || minioKey.trim().isEmpty()) {
+            throw new RuntimeException("MinIO upload failed - returned null/empty key");
+        }
+
+        return minioKey;
+    }
+
+    private FileEntity saveToDatabase(FileData fileData, UUID userId, FolderEntity folder, String finalFileName,
+                                      VirusScanStatus scanStatus, String minioKey, String uploadId) {
+        updateUploadStatus(uploadId, "SAVING", 92, "Saving file record...", fileData.getOriginalFileName());
+
+        FileEntity fileEntity = new FileEntity();
+        fileEntity.setFileName(finalFileName);
+        fileEntity.setUserId(userId);
+        fileEntity.setFolder(folder);
+        fileEntity.setFileSize(fileData.getSize());
+        fileEntity.setMimeType(fileData.getContentType());
+        fileEntity.setScanStatus(scanStatus);
+        fileEntity.setMinioKey(minioKey);
+
+        return fileRepository.save(fileEntity);
+    }
+
+    private FileUploadResponse buildUploadResponse(FileEntity savedFile, FolderEntity folder, String folderPath,
+                                                   boolean wasRenamed, String originalFileName, String finalFileName) {
+        return FileUploadResponse.builder()
+                .fileId(savedFile.getFileId())
+                .fileName(savedFile.getFileName())
+                .folderId(folder != null ? folder.getFolderId() : null)
+                .folderPath(folderPath)
+                .fileSize(savedFile.getFileSize())
+                .mimeType(savedFile.getMimeType())
+                .scanStatus(savedFile.getScanStatus())
+                .uploadedAt(savedFile.getCreatedAt())
+                .build();
+    }
+
+    private void handleUploadFailure(String uploadId, String fileName, Exception e) {
+        log.error("Async upload failed for file: {} - {}", fileName, e.getMessage(), e);
+        markUploadFailed(uploadId, e.getMessage());
+    }
+
+
+    @Override
+    public UploadStatus getUploadStatus(String uploadId) {
+        return uploadStatuses.get(uploadId);
+    }
+
+    @Override
+    public void cleanupUploadStatus(String uploadId) {
+        uploadStatuses.remove(uploadId);
+    }
 
     private VirusScanStatus performVirusScan(MultipartFile file) {
         if (!virusScanConfig.isEnabled()) {
@@ -295,5 +489,46 @@ public class FileServiceImpl implements FileService {
                     .orElseThrow(() -> new ItemNotFoundException("User given username does not exist"));
         }
         throw new ItemNotFoundException("User is not authenticated");
+    }
+
+    // Status tracking methods
+    private void updateUploadStatus(String uploadId, String stage, int progress, String message, String fileName) {
+        UploadStatus status = uploadStatuses.computeIfAbsent(uploadId, id ->
+                UploadStatus.builder()
+                        .uploadId(id)
+                        .fileName(fileName)
+                        .startTime(LocalDateTime.now())
+                        .build()
+        );
+
+        status.setStage(stage);
+        status.setProgress(progress);
+        status.setMessage(message);
+        status.setLastUpdated(LocalDateTime.now());
+
+        log.info("Upload {} - {}: {} ({}%)", uploadId, stage, message, progress);
+    }
+
+    private void markUploadCompleted(String uploadId, FileUploadResponse response, String message) {
+        UploadStatus status = uploadStatuses.get(uploadId);
+        if (status != null) {
+            status.setStage("COMPLETED");
+            status.setProgress(100);
+            status.setMessage(message);
+            status.setCompleted(true);
+            status.setResult(response);
+            status.setLastUpdated(LocalDateTime.now());
+        }
+    }
+
+    private void markUploadFailed(String uploadId, String errorMessage) {
+        UploadStatus status = uploadStatuses.get(uploadId);
+        if (status != null) {
+            status.setStage("FAILED");
+            status.setFailed(true);
+            status.setErrorMessage(errorMessage);
+            status.setMessage("Upload failed: " + errorMessage);
+            status.setLastUpdated(LocalDateTime.now());
+        }
     }
 }
