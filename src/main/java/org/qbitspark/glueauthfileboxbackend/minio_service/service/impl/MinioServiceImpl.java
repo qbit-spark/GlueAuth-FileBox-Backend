@@ -387,4 +387,29 @@ public class MinioServiceImpl implements MinioService {
             throw new RuntimeException("Failed to rename file in storage", e);
         }
     }
+
+    @Override
+    public void copyFile(UUID userId, String sourceKey, String destinationKey) {
+        try {
+            String bucketName = getBucketName(userId);
+
+            minioClient.copyObject(
+                    CopyObjectArgs.builder()
+                            .bucket(bucketName)
+                            .object(destinationKey)
+                            .source(CopySource.builder()
+                                    .bucket(bucketName)
+                                    .object(sourceKey)
+                                    .build())
+                            .build()
+            );
+
+            log.info("File copied in MinIO: {} -> {}", sourceKey, destinationKey);
+
+        } catch (Exception e) {
+            log.error("Failed to copy file in MinIO: {} -> {}", sourceKey, destinationKey, e);
+            throw new RuntimeException("Failed to copy file in storage", e);
+        }
+    }
+
 }

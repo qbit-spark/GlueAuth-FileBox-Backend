@@ -421,6 +421,110 @@ public class FileServiceImpl implements FileService {
         return buildSearchResponse(searchTerm, allFolders, allFiles, pageable);
     }
 
+    @Override
+    @Transactional
+    public void moveFile(UUID fileId, UUID destinationFolderId) throws ItemNotFoundException {
+
+        AccountEntity user = getAuthenticatedAccount();
+        UUID userId = user.getId();
+
+        log.info("Moving file {} to folder {} for user: {}", fileId, destinationFolderId, user.getUserName());
+
+        // Get and validate source file
+        FileEntity file = fileRepository.findById(fileId)
+                .orElseThrow(() -> new ItemNotFoundException("File not found"));
+
+        if (!file.getUserId().equals(userId)) {
+            throw new RuntimeException("Access denied: You don't own this file");
+        }
+
+        if (file.getIsDeleted()) {
+            throw new RuntimeException("Cannot move deleted file");
+        }
+
+        // Get and validate destination folder
+        FolderEntity destinationFolder = validateDestinationFolder(destinationFolderId, userId);
+
+        // Check if file is already in destination folder
+        if (isFileAlreadyInFolder(file, destinationFolderId)) {
+            throw new RuntimeException("File is already in the destination folder");
+        }
+
+        // Handle name conflicts and get final filename
+        String originalFolderPath = file.getFolder() != null ? file.getFolder().getFullPath() : "";
+        String destinationFolderPath = destinationFolder != null ? destinationFolder.getFullPath() : "";
+        String finalFileName = handleMoveNameConflict(userId, file.getFileName(), destinationFolderId);
+
+        // Move file in MinIO
+        String oldMinioKey = file.getMinioKey();
+        String newMinioKey = generateNewMinioKey(destinationFolderPath, finalFileName);
+
+        minioService.renameFile(userId, oldMinioKey, newMinioKey);
+
+        // Update database
+        file.setFolder(destinationFolder);
+        file.setFileName(finalFileName);
+        file.setMinioKey(newMinioKey);
+        fileRepository.save(file);
+
+        log.info("File moved successfully: {} -> {}", originalFolderPath + "/" + file.getFileName(),
+                destinationFolderPath + "/" + finalFileName);
+    }
+
+    @Override
+    @Transactional
+    public FileUploadResponse copyFile(UUID fileId, UUID destinationFolderId) throws ItemNotFoundException {
+
+        AccountEntity user = getAuthenticatedAccount();
+        UUID userId = user.getId();
+
+        log.info("Copying file {} to folder {} for user: {}", fileId, destinationFolderId, user.getUserName());
+
+        // Get and validate source file
+        FileEntity sourceFile = fileRepository.findById(fileId)
+                .orElseThrow(() -> new ItemNotFoundException("File not found"));
+
+        if (!sourceFile.getUserId().equals(userId)) {
+            throw new RuntimeException("Access denied: You don't own this file");
+        }
+
+        if (sourceFile.getIsDeleted()) {
+            throw new RuntimeException("Cannot copy deleted file");
+        }
+
+        // Get and validate destination folder
+        FolderEntity destinationFolder = validateDestinationFolder(destinationFolderId, userId);
+        String destinationFolderPath = destinationFolder != null ? destinationFolder.getFullPath() : "";
+
+        // Handle name conflicts and get final filename
+        String finalFileName = handleCopyNameConflict(userId, sourceFile.getFileName(), destinationFolderId);
+
+        // Copy file in MinIO
+        String sourceMinioKey = sourceFile.getMinioKey();
+        String newMinioKey = generateNewMinioKey(destinationFolderPath, finalFileName);
+
+        minioService.copyFile(userId, sourceMinioKey, newMinioKey);
+
+        // Create new database record (duplicate everything except ID and timestamps)
+        FileEntity newFile = createFileEntityCopy(sourceFile, destinationFolder, finalFileName, newMinioKey);
+        FileEntity savedFile = fileRepository.save(newFile);
+
+        log.info("File copied successfully: {} -> {}",
+                sourceFile.getFileName(), destinationFolderPath + "/" + finalFileName);
+
+        // Build response
+        return FileUploadResponse.builder()
+                .fileId(savedFile.getFileId())
+                .fileName(savedFile.getFileName())
+                .folderId(destinationFolderId)
+                .folderPath(destinationFolderPath)
+                .fileSize(savedFile.getFileSize())
+                .mimeType(savedFile.getMimeType())
+                .scanStatus(savedFile.getScanStatus())
+                .uploadedAt(savedFile.getCreatedAt())
+                .build();
+    }
+
 
     private String processBatchUpload(String batchId, UUID folderId, List<MultipartFile> files, BatchUploadOptions options, UUID userId, String folderPath) throws ItemNotFoundException {
 
@@ -1492,5 +1596,114 @@ public class FileServiceImpl implements FileService {
         String nameB = b instanceof FolderEntity ?
                 ((FolderEntity) b).getFolderName() : ((FileEntity) b).getFileName();
         return nameA.compareToIgnoreCase(nameB);
+    }
+
+    private FolderEntity validateDestinationFolder(UUID destinationFolderId, UUID userId) throws ItemNotFoundException {
+        if (destinationFolderId == null) {
+            return null; // Moving to root
+        }
+
+        FolderEntity folder = folderRepository.findById(destinationFolderId)
+                .orElseThrow(() -> new ItemNotFoundException("Destination folder not found"));
+
+        if (!folder.getUserId().equals(userId)) {
+            throw new RuntimeException("Access denied: You don't own the destination folder");
+        }
+
+        return folder;
+    }
+
+    private boolean isFileAlreadyInFolder(FileEntity file, UUID destinationFolderId) {
+        UUID currentFolderId = file.getFolder() != null ? file.getFolder().getFolderId() : null;
+
+        // Both null (moving from root to root)
+        if (currentFolderId == null && destinationFolderId == null) {
+            return true;
+        }
+
+        // Compare folder IDs
+        return currentFolderId != null && currentFolderId.equals(destinationFolderId);
+    }
+
+    private String handleMoveNameConflict(UUID userId, String originalFileName, UUID destinationFolderId) {
+        String baseName = getFileBaseName(originalFileName);
+        String extension = getFileExtension(originalFileName);
+
+        String currentFileName = originalFileName;
+        int counter = 1;
+
+        // Keep checking until we find an available name
+        while (fileExistsInDestination(userId, currentFileName, destinationFolderId)) {
+            currentFileName = baseName + " (" + counter + ")" + extension;
+            counter++;
+
+            if (counter > 1000) {
+                throw new RuntimeException("Too many files with similar names");
+            }
+        }
+
+        if (!currentFileName.equals(originalFileName)) {
+            log.info("Renamed file during move: {} -> {}", originalFileName, currentFileName);
+        }
+
+        return currentFileName;
+    }
+
+    private boolean fileExistsInDestination(UUID userId, String fileName, UUID destinationFolderId) {
+        if (destinationFolderId == null) {
+            return fileRepository.findByUserIdAndFileNameAndFolderIsNullAndIsDeletedFalse(userId, fileName).isPresent();
+        } else {
+            return fileRepository.findByUserIdAndFileNameAndFolder_FolderIdAndIsDeletedFalse(userId, fileName, destinationFolderId).isPresent();
+        }
+    }
+
+    private String generateNewMinioKey(String folderPath, String fileName) {
+        if (folderPath == null || folderPath.trim().isEmpty()) {
+            return fileName;
+        }
+        return folderPath.endsWith("/") ? folderPath + fileName : folderPath + "/" + fileName;
+    }
+
+    private String handleCopyNameConflict(UUID userId, String originalFileName, UUID destinationFolderId) {
+        String baseName = getFileBaseName(originalFileName);
+        String extension = getFileExtension(originalFileName);
+
+        String currentFileName = originalFileName;
+        int counter = 1;
+
+        // Keep checking until we find an available name
+        while (fileExistsInDestination(userId, currentFileName, destinationFolderId)) {
+            currentFileName = baseName + " (" + counter + ")" + extension;
+            counter++;
+
+            if (counter > 1000) {
+                throw new RuntimeException("Too many files with similar names");
+            }
+        }
+
+        if (!currentFileName.equals(originalFileName)) {
+            log.info("Renamed file during copy: {} -> {}", originalFileName, currentFileName);
+        }
+
+        return currentFileName;
+    }
+
+    private FileEntity createFileEntityCopy(FileEntity sourceFile, FolderEntity destinationFolder,
+                                            String finalFileName, String newMinioKey) {
+        FileEntity newFile = new FileEntity();
+
+        // Copy all properties from source
+        newFile.setFileName(finalFileName);
+        newFile.setUserId(sourceFile.getUserId());
+        newFile.setFolder(destinationFolder);
+        newFile.setFileSize(sourceFile.getFileSize());
+        newFile.setMimeType(sourceFile.getMimeType());
+        newFile.setScanStatus(sourceFile.getScanStatus()); // Inherit scan status
+        newFile.setMinioKey(newMinioKey);
+        newFile.setIsDeleted(false);
+
+        // Let database handle timestamps (createdAt, updatedAt)
+
+        return newFile;
     }
 }

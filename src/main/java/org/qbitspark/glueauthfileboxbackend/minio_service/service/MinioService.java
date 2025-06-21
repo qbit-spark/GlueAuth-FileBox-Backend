@@ -37,4 +37,6 @@ public interface MinioService {
     String generatePresignedUploadUrl(UUID userId, String objectKey, int expirationInMinutes);
 
     void renameFile(UUID userId, String oldKey, String newKey);
+
+    void copyFile(UUID userId, String sourceKey, String destinationKey);
 }

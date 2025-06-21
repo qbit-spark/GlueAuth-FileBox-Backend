@@ -39,4 +39,8 @@ public interface FileService {
     SearchResponse searchItems(String query, Pageable pageable) throws ItemNotFoundException;
 
     SearchResponse searchItemsInFolder(UUID folderId, String query, Pageable pageable) throws ItemNotFoundException;
+
+    void moveFile(UUID fileId, UUID destinationFolderId) throws ItemNotFoundException;
+
+    FileUploadResponse copyFile(UUID fileId, UUID destinationFolderId) throws ItemNotFoundException;
 }

@@ -397,6 +397,20 @@ public class FileController {
         );
     }
 
+    @PostMapping("/{fileId}/move")
+    public ResponseEntity<GlobeSuccessResponseBuilder> moveFile(
+            @PathVariable UUID fileId,
+            @RequestBody MoveFileRequest request) throws ItemNotFoundException {
+
+        log.info("Move request for file: {} to folder: {}", fileId, request.getDestinationFolderId());
+
+        fileService.moveFile(fileId, request.getDestinationFolderId());
+
+        return ResponseEntity.ok(
+                GlobeSuccessResponseBuilder.success("File moved successfully")
+        );
+    }
+
 
     // Private helper methods for batch monitoring
     private void monitorBatchStatus(String batchId, SseEmitter emitter) {
@@ -767,4 +781,17 @@ public class FileController {
     }
 
 
+    @PostMapping("/{fileId}/copy")
+    public ResponseEntity<GlobeSuccessResponseBuilder> copyFile(
+            @PathVariable UUID fileId,
+            @RequestBody CopyFileRequest request) throws ItemNotFoundException {
+
+        log.info("Copy request for file: {} to folder: {}", fileId, request.getDestinationFolderId());
+
+        FileUploadResponse response = fileService.copyFile(fileId, request.getDestinationFolderId());
+
+        return ResponseEntity.ok(
+                GlobeSuccessResponseBuilder.success("File copied successfully", response)
+        );
+    }
 }
