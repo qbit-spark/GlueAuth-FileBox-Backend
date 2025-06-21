@@ -14,6 +14,7 @@ import org.qbitspark.glueauthfileboxbackend.globeresponsebody.GlobeSuccessRespon
 import org.springframework.core.io.InputStreamResource;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContextHolder;
@@ -48,19 +49,21 @@ public class FileController {
     private final FolderRepository folderRepository;
 
     @PostMapping("/upload")
-    public ResponseEntity<FileUploadResponse> uploadFile(
+    public ResponseEntity<GlobeSuccessResponseBuilder> uploadFile(
             @RequestParam(value = "folderId", required = false) UUID folderId,
             @RequestParam("file") MultipartFile file) throws ItemNotFoundException {
 
         FileUploadResponse response = fileService.uploadFile(folderId, file);
-        return ResponseEntity.ok(response);
+        return ResponseEntity.ok(
+                GlobeSuccessResponseBuilder.success("File uploaded successfully", response)
+        );
     }
 
 
     @PostMapping("/upload-async")
-    public ResponseEntity<Map<String, String>> uploadFileAsync(
+    public ResponseEntity<GlobeSuccessResponseBuilder> uploadFileAsync(
             @RequestParam(value = "folderId", required = false) UUID folderId,
-            @RequestParam("file") MultipartFile file) {
+            @RequestParam("file") MultipartFile file) throws RandomExceptions {
 
         try {
             String uploadId = UUID.randomUUID().toString();
@@ -94,20 +97,20 @@ public class FileController {
             // Start async processing
             fileService.uploadFileAsync(folderId, fileData, uploadId, userId, folderPath);
 
-            Map<String, String> response = new HashMap<>();
-            response.put("uploadId", uploadId);
-            response.put("message", "Upload started in background");
-            response.put("statusUrl", "/api/v1/files/upload-status/" + uploadId);
+            Map<String, String> responseData = new HashMap<>();
+            responseData.put("uploadId", uploadId);
+            responseData.put("statusUrl", "/api/v1/files/upload-status/" + uploadId);
 
-            return ResponseEntity.ok(response);
+            return ResponseEntity.ok(
+                    GlobeSuccessResponseBuilder.success("Upload started in background", responseData)
+            );
 
         } catch (Exception e) {
             log.error("Failed to start async upload: {}", e.getMessage());
-            Map<String, String> errorResponse = new HashMap<>();
-            errorResponse.put("error", "Failed to start upload: " + e.getMessage());
-            return ResponseEntity.badRequest().body(errorResponse);
+            throw new RandomExceptions("Failed to start upload: " + e.getMessage());
         }
     }
+
 
 
     @GetMapping("/upload-status/{uploadId}")
@@ -141,17 +144,18 @@ public class FileController {
 
 
     /**
-     * Batch upload multiple files with individual tracking
+     * Batch uploads multiple files with individual tracking
      */
     @PostMapping("/upload-batch")
-    public ResponseEntity<Map<String, Object>> uploadFilesBatch(
+    public ResponseEntity<GlobeSuccessResponseBuilder> uploadFilesBatch(
             @RequestParam(value = "folderId", required = false) UUID folderId,
             @RequestParam("files") List<MultipartFile> files,
             @RequestParam(value = "maxConcurrentUploads", defaultValue = "3") int maxConcurrentUploads,
             @RequestParam(value = "stopOnFirstError", defaultValue = "false") boolean stopOnFirstError,
-            @RequestParam(value = "allowDuplicates", defaultValue = "false") boolean allowDuplicates) throws RandomExceptions, ExecutionException, InterruptedException, ItemNotFoundException {
+            @RequestParam(value = "allowDuplicates", defaultValue = "false") boolean allowDuplicates)
+            throws RandomExceptions, ExecutionException, InterruptedException, ItemNotFoundException {
 
-        // Get authenticated user
+
         Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
         AccountEntity authenticatedUser = extractAccount(authentication);
         UUID userId = authenticatedUser.getId();
@@ -169,14 +173,12 @@ public class FileController {
             folderPath = folder.getFullPath();
         }
 
-
-
         // Validate input
         if (files == null || files.isEmpty()) {
             throw new RandomExceptions("No files provided");
         }
 
-        if (files.size() > 50) { // Reasonable limit
+        if (files.size() > 50) {
             throw new RandomExceptions("Too many files. Maximum 50 files per batch.");
         }
 
@@ -189,7 +191,7 @@ public class FileController {
 
         // Create batch upload options
         BatchUploadOptions options = BatchUploadOptions.builder()
-                .maxConcurrentUploads(Math.min(maxConcurrentUploads, 10)) // Cap at 10
+                .maxConcurrentUploads(Math.min(maxConcurrentUploads, 10))
                 .stopOnFirstError(stopOnFirstError)
                 .allowDuplicates(allowDuplicates)
                 .virusScanTimeout(30000)
@@ -197,32 +199,34 @@ public class FileController {
 
         // Start batch upload
         CompletableFuture<String> batchFuture = fileService.uploadFilesBatch(folderId, files, options, userId, folderPath);
-        String batchId = batchFuture.get(); // This returns immediately with batchId
+        String batchId = batchFuture.get();
 
-        Map<String, Object> response = new HashMap<>();
-        response.put("batchId", batchId);
-        response.put("totalFiles", files.size());
-        response.put("message", "Batch upload started");
-        response.put("statusUrl", "/api/v1/files/batch-status/" + batchId);
-        response.put("streamUrl", "/api/v1/files/batch-status/" + batchId + "/stream");
+        Map<String, Object> responseData = new HashMap<>();
+        responseData.put("batchId", batchId);
+        responseData.put("totalFiles", files.size());
+        responseData.put("statusUrl", "/api/v1/files/batch-status/" + batchId);
+        responseData.put("streamUrl", "/api/v1/files/batch-status/" + batchId + "/stream");
 
-        return ResponseEntity.ok(response);
-
+        return ResponseEntity.ok(
+                GlobeSuccessResponseBuilder.success("Batch upload started", responseData)
+        );
     }
-
     /**
      * Get batch upload status
      */
     @GetMapping("/batch-status/{batchId}")
-    public ResponseEntity<BatchUploadStatus> getBatchStatus(@PathVariable String batchId) throws RandomExceptions {
+    public ResponseEntity<GlobeSuccessResponseBuilder> getBatchStatus(@PathVariable String batchId) throws RandomExceptions {
         BatchUploadStatus status = fileService.getBatchUploadStatus(batchId);
 
         if (status == null) {
             throw new RandomExceptions("Batch not found or was already cleaned");
         }
 
-        return ResponseEntity.ok(status);
+        return ResponseEntity.ok(
+                GlobeSuccessResponseBuilder.success("Batch status retrieved sucessfuly", status)
+        );
     }
+
 
     /**
      * Stream batch upload progress via SSE
@@ -248,28 +252,30 @@ public class FileController {
      * Get individual file status within a batch
      */
     @GetMapping("/batch-status/{batchId}/file/{uploadId}")
-    public ResponseEntity<UploadStatus> getFileStatusInBatch(
+    public ResponseEntity<GlobeSuccessResponseBuilder> getFileStatusInBatch(
             @PathVariable String batchId,
-            @PathVariable String uploadId) {
+            @PathVariable String uploadId) throws RandomExceptions {
 
         BatchUploadStatus batchStatus = fileService.getBatchUploadStatus(batchId);
         if (batchStatus == null) {
-            return ResponseEntity.notFound().build();
+            throw new RandomExceptions("Batch not found");
         }
 
         UploadStatus fileStatus = batchStatus.getFiles().get(uploadId);
         if (fileStatus == null) {
-            return ResponseEntity.notFound().build();
+            throw new RandomExceptions("File not found in batch");
         }
 
-        return ResponseEntity.ok(fileStatus);
+        return ResponseEntity.ok(
+                GlobeSuccessResponseBuilder.success("File status retrieved", fileStatus)
+        );
     }
 
     /**
      * Cancel a batch upload (the best effort)
      */
     @PostMapping("/batch-status/{batchId}/cancel")
-    public ResponseEntity<Map<String, String>> cancelBatchUpload(@PathVariable String batchId) throws RandomExceptions {
+    public ResponseEntity<GlobeSuccessResponseBuilder> cancelBatchUpload(@PathVariable String batchId) throws RandomExceptions {
         BatchUploadStatus status = fileService.getBatchUploadStatus(batchId);
 
         if (status == null) {
@@ -282,20 +288,24 @@ public class FileController {
 
         // Note: Actual cancellation would require additional implementation
         // to interrupt running tasks - this is a placeholder
-        Map<String, String> response = new HashMap<>();
-        response.put("message", "Cancellation requested (some files may still complete)");
-        return ResponseEntity.ok(response);
+        Map<String, String> responseData = new HashMap<>();
+        responseData.put("warning", "Some files may still complete processing");
+
+        return ResponseEntity.ok(
+                GlobeSuccessResponseBuilder.success("Cancellation requested", responseData)
+        );
     }
 
     /**
      * Cleanup batch status
      */
     @DeleteMapping("/batch-status/{batchId}")
-    public ResponseEntity<Void> cleanupBatchStatus(@PathVariable String batchId) {
+    public ResponseEntity<GlobeSuccessResponseBuilder> cleanupBatchStatus(@PathVariable String batchId) {
         fileService.cleanupBatchUploadStatus(batchId);
-        return ResponseEntity.noContent().build();
+        return ResponseEntity.ok(
+                GlobeSuccessResponseBuilder.success("Batch status cleaned up successfully")
+        );
     }
-
 
     @GetMapping("/{fileId}")
     public ResponseEntity<GlobeSuccessResponseBuilder> getFileInfo(@PathVariable UUID fileId) throws ItemNotFoundException {
