@@ -19,6 +19,8 @@ import org.qbitspark.glueauthfileboxbackend.minio_service.service.MinioService;
 import org.qbitspark.glueauthfileboxbackend.virus_scanner_service.config.VirusScanConfig;
 import org.qbitspark.glueauthfileboxbackend.virus_scanner_service.payload.VirusScanResult;
 import org.qbitspark.glueauthfileboxbackend.virus_scanner_service.service.VirusScanService;
+import org.springframework.core.io.InputStreamResource;
+import org.springframework.http.ResponseEntity;
 import org.springframework.scheduling.annotation.Async;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContextHolder;
@@ -26,7 +28,12 @@ import org.springframework.security.core.userdetails.UserDetails;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.multipart.MultipartFile;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.MediaType;
+import org.springframework.http.ResponseEntity;
+import org.springframework.core.io.InputStreamResource;
 
+import java.io.InputStream;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
@@ -117,6 +124,35 @@ public class FileServiceImpl implements FileService {
         if (batchStatus != null) {
             batchStatus.getFiles().keySet().forEach(uploadStatuses::remove);
         }
+    }
+
+    @Override
+    public FileInfoResponse getFileInfo(UUID fileId) throws ItemNotFoundException {
+
+        AccountEntity user = getAuthenticatedAccount();
+
+        FileEntity file = fileRepository.findById(fileId)
+                .orElseThrow(() -> new ItemNotFoundException("File not found"));
+
+        if (!file.getUserId().equals(user.getId())) {
+            throw new RuntimeException("Access denied: You don't own this file");
+        }
+
+        return FileInfoResponse.builder()
+                .id(file.getFileId())
+                .name(file.getFileName())
+                .size(file.getFileSize())
+                .sizeFormatted(formatFileSize(file.getFileSize()))
+                .mimeType(file.getMimeType())
+                .extension(getFileExtension(file.getFileName()))
+                .category(getFileCategory(file.getMimeType()))
+                .scanStatus(file.getScanStatus().toString())
+                .folderPath(getFolderPath(file.getFolder()))
+                .canPreview(canPreviewFile(file.getMimeType(), file.getScanStatus()))
+                .canDownload(canDownloadFile(file.getScanStatus()))
+                .uploadedAt(file.getCreatedAt())
+                .updatedAt(file.getUpdatedAt())
+                .build();
     }
 
     private String processBatchUpload(String batchId, UUID folderId, List<MultipartFile> files, BatchUploadOptions options, UUID userId, String folderPath) throws ItemNotFoundException {
@@ -481,7 +517,6 @@ public class FileServiceImpl implements FileService {
 
 
     // Helper Methods
-
     private void validateFileData(FileData fileData) {
         if (fileData.isEmpty()) {
             throw new RuntimeException("File is empty");
@@ -609,6 +644,84 @@ public class FileServiceImpl implements FileService {
     public void cleanupUploadStatus(String uploadId) {
         uploadStatuses.remove(uploadId);
     }
+
+    @Override
+    public ResponseEntity<InputStreamResource> downloadFile(UUID fileId) throws ItemNotFoundException {
+
+        AccountEntity user = getAuthenticatedAccount();
+
+        // Get file and validate ownership
+        FileEntity file = fileRepository.findById(fileId)
+                .orElseThrow(() -> new ItemNotFoundException("File not found"));
+
+        if (!file.getUserId().equals(user.getId())) {
+            throw new RuntimeException("Access denied: You don't own this file");
+        }
+
+        // Check virus scan status
+        if (file.getScanStatus() == VirusScanStatus.INFECTED) {
+            throw new RuntimeException("File blocked: Contains virus");
+        }
+
+        // Get file stream from MinIO
+        InputStream fileStream = minioService.downloadFile(user.getId(), file.getMinioKey());
+
+        // Set response headers (FIXED)
+        HttpHeaders headers = new HttpHeaders();
+        headers.add(HttpHeaders.CONTENT_DISPOSITION,
+                "attachment; filename=\"" + file.getFileName() + "\"");
+        headers.setContentType(MediaType.parseMediaType(
+                file.getMimeType() != null ? file.getMimeType() : "application/octet-stream"));
+        headers.setContentLength(file.getFileSize());
+
+        log.info("File download started: {} by user: {}", file.getFileName(), user.getUserName());
+
+        return ResponseEntity.ok()
+                .headers(headers)
+                .body(new InputStreamResource(fileStream));
+    }
+
+
+    // Add to FileServiceImpl.java
+    @Override
+    public ResponseEntity<InputStreamResource> previewFile(UUID fileId) throws ItemNotFoundException {
+
+        AccountEntity user = getAuthenticatedAccount();
+
+        // Get file and validate ownership
+        FileEntity file = fileRepository.findById(fileId)
+                .orElseThrow(() -> new ItemNotFoundException("File not found"));
+
+        if (!file.getUserId().equals(user.getId())) {
+            throw new RuntimeException("Access denied: You don't own this file");
+        }
+
+        // Check virus scan status
+        if (file.getScanStatus() == VirusScanStatus.INFECTED) {
+            throw new RuntimeException("File blocked: Contains virus");
+        }
+
+        // Check if a file can be previewed
+        if (!canPreviewFile(file.getMimeType(), file.getScanStatus())) {
+            throw new RuntimeException("Preview not available for this file type");
+        }
+
+        // Get file stream from MinIO
+        InputStream fileStream = minioService.downloadFile(user.getId(), file.getMinioKey());
+
+        // Set preview headers (inline, not download)
+        HttpHeaders headers = new HttpHeaders();
+        headers.add(HttpHeaders.CONTENT_DISPOSITION, "inline; filename=\"" + file.getFileName() + "\"");
+        headers.setContentType(MediaType.parseMediaType(file.getMimeType()));
+        headers.setContentLength(file.getFileSize());
+
+        log.info("File preview: {} by user: {}", file.getFileName(), user.getUserName());
+
+        return ResponseEntity.ok()
+                .headers(headers)
+                .body(new InputStreamResource(fileStream));
+    }
+
 
     private VirusScanStatus performVirusScan(MultipartFile file) {
         if (!virusScanConfig.isEnabled()) {
@@ -884,5 +997,56 @@ public class FileServiceImpl implements FileService {
             status.setMessage("Upload failed: " + errorMessage);
             status.setLastUpdated(LocalDateTime.now());
         }
+    }
+
+    // Helper methods
+    private String getFolderPath(FolderEntity folder) {
+        return folder != null ? folder.getFullPath() : "";
+    }
+
+    private boolean canPreviewFile(String mimeType, VirusScanStatus scanStatus) {
+        // Block infected files completely
+        if (scanStatus == VirusScanStatus.INFECTED) {
+            return false;
+        }
+
+        // Allow preview for safe file types only
+        if (mimeType == null) return false;
+
+        return mimeType.startsWith("image/") ||
+                mimeType.equals("application/pdf") ||
+                mimeType.startsWith("text/");
+    }
+
+    private boolean canDownloadFile(VirusScanStatus scanStatus) {
+        // Block infected files completely
+        return scanStatus != VirusScanStatus.INFECTED;
+    }
+
+    private String formatFileSize(long bytes) {
+        if (bytes <= 0) return "0 B";
+
+        String[] units = {"B", "KB", "MB", "GB", "TB"};
+        int digitGroups = (int) (Math.log10(bytes) / Math.log10(1024));
+
+        return String.format("%.1f %s",
+                bytes / Math.pow(1024, digitGroups),
+                units[digitGroups]);
+    }
+
+    private String getFileCategory(String mimeType) {
+        if (mimeType == null) return "unknown";
+
+        if (mimeType.startsWith("image/")) return "image";
+        if (mimeType.startsWith("video/")) return "video";
+        if (mimeType.startsWith("audio/")) return "audio";
+        if (mimeType.contains("pdf")) return "document";
+        if (mimeType.contains("word") || mimeType.contains("document")) return "document";
+        if (mimeType.contains("sheet") || mimeType.contains("excel")) return "spreadsheet";
+        if (mimeType.contains("presentation") || mimeType.contains("powerpoint")) return "presentation";
+        if (mimeType.contains("zip") || mimeType.contains("archive")) return "archive";
+        if (mimeType.startsWith("text/")) return "text";
+
+        return "file";
     }
 }

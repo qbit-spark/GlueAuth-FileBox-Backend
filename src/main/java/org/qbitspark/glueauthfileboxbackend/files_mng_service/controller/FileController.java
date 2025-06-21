@@ -10,6 +10,8 @@ import org.qbitspark.glueauthfileboxbackend.files_mng_service.repo.FolderReposit
 import org.qbitspark.glueauthfileboxbackend.files_mng_service.service.FileService;
 import org.qbitspark.glueauthfileboxbackend.globeadvice.exceptions.ItemNotFoundException;
 import org.qbitspark.glueauthfileboxbackend.globeadvice.exceptions.RandomExceptions;
+import org.qbitspark.glueauthfileboxbackend.globeresponsebody.GlobeSuccessResponseBuilder;
+import org.springframework.core.io.InputStreamResource;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContextHolder;
@@ -290,6 +292,38 @@ public class FileController {
     public ResponseEntity<Void> cleanupBatchStatus(@PathVariable String batchId) {
         fileService.cleanupBatchUploadStatus(batchId);
         return ResponseEntity.noContent().build();
+    }
+
+
+    @GetMapping("/{fileId}")
+    public ResponseEntity<GlobeSuccessResponseBuilder> getFileInfo(@PathVariable UUID fileId) throws ItemNotFoundException {
+
+        log.info("Getting file info for: {}", fileId);
+
+        FileInfoResponse response = fileService.getFileInfo(fileId);
+
+        log.info("File info retrieved: {}", response.getName());
+
+        return ResponseEntity.ok(
+                GlobeSuccessResponseBuilder.success("File info retrieved successfully", response)
+        );
+    }
+
+    @GetMapping("/{fileId}/download")
+    public ResponseEntity<InputStreamResource> downloadFile(@PathVariable UUID fileId) throws ItemNotFoundException {
+
+        log.info("Download request for file: {}", fileId);
+
+        return fileService.downloadFile(fileId);
+    }
+
+
+    @GetMapping("/{fileId}/preview")
+    public ResponseEntity<InputStreamResource> previewFile(@PathVariable UUID fileId) throws ItemNotFoundException {
+
+        log.info("Preview request for file: {}", fileId);
+
+        return fileService.previewFile(fileId);
     }
 
 

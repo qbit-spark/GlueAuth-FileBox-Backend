@@ -118,7 +118,6 @@ public class FolderServiceImpl implements FolderService {
                 .build();
     }
 
-
     @Override
     public List<FolderListResponse> getRootFolders() throws ItemNotFoundException {
 
@@ -154,7 +153,6 @@ public class FolderServiceImpl implements FolderService {
                 .map(this::convertToFolderListResponse)
                 .toList();
     }
-
 
     @Override
     public FolderContentsResponse getFolderContents(UUID folderId, Pageable pageable) throws ItemNotFoundException {
@@ -192,7 +190,6 @@ public class FolderServiceImpl implements FolderService {
                 .pagination(buildPaginationInfo(pagedItems))
                 .build();
     }
-
 
     private AccountEntity getAuthenticatedAccount() throws ItemNotFoundException {
         Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
