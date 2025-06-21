@@ -71,4 +71,11 @@ public interface FileRepository extends JpaRepository<FileEntity, UUID> {
 
     List<FileEntity> findByUserIdAndFileNameContainingIgnoreCaseAndIsDeletedFalse(
             UUID userId, String searchTerm);
+
+
+    List<FileEntity> findByUserIdAndFolderIsNullAndFileNameContainingIgnoreCase(
+            UUID userId, String searchTerm);
+
+    List<FileEntity> findByUserIdAndFolder_FolderIdAndFileNameContainingIgnoreCase(
+            UUID userId, UUID folderId, String searchTerm);
 }

@@ -42,7 +42,13 @@ public interface FolderRepository extends JpaRepository<FolderEntity, UUID> {
     long countByUserIdAndParentFolderIsNull(UUID userId);
     long countByUserIdAndParentFolder_FolderId(UUID userId, UUID parentFolderId);
 
-    List<FolderEntity> findByUserIdAndFolderNameContainingIgnoreCaseAndIsDeletedFalse(
+    List<FolderEntity> findByUserIdAndFolderNameContainingIgnoreCase(UUID userId, String searchTerm);
+
+    // Add to FolderRepository.java
+    List<FolderEntity> findByUserIdAndParentFolderIsNullAndFolderNameContainingIgnoreCase(
             UUID userId, String searchTerm);
+
+    List<FolderEntity> findByUserIdAndParentFolder_FolderIdAndFolderNameContainingIgnoreCase(
+            UUID userId, UUID parentFolderId, String searchTerm);
 
 }

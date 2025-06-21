@@ -375,6 +375,27 @@ public class FileController {
     }
 
 
+    @GetMapping("/search-in-folder")
+    public ResponseEntity<GlobeSuccessResponseBuilder> searchItemsInFolder(
+            @RequestParam(required = false) UUID folderId,
+            @RequestParam String q,
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "20") int size) throws ItemNotFoundException {
+
+        log.info("Folder search request: '{}' in folder {} (page: {}, size: {})", q, folderId, page, size);
+
+        int limitedSize = Math.min(size, 100);
+        Pageable pageable = PageRequest.of(page, limitedSize);
+
+        SearchResponse response = fileService.searchItemsInFolder(folderId, q, pageable);
+
+        log.info("Folder search '{}' returned {} folders and {} files",
+                q, response.getSummary().getTotalFolders(), response.getSummary().getTotalFiles());
+
+        return ResponseEntity.ok(
+                GlobeSuccessResponseBuilder.success("Folder search completed successfully", response)
+        );
+    }
 
 
     // Private helper methods for batch monitoring

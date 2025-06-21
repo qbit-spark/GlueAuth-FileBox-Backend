@@ -324,7 +324,7 @@ public class FileServiceImpl implements FileService {
         log.info("File restored from trash: {} ({})", file.getFileName(), user.getUserName());
     }
 
-    // Add to FileServiceImpl.java
+
     @Override
     public SearchResponse searchItems(String query, Pageable pageable) throws ItemNotFoundException {
 
@@ -338,18 +338,23 @@ public class FileServiceImpl implements FileService {
 
         log.info("Searching for '{}' for user: {}", searchTerm, user.getUserName());
 
-        // Search folders
+        // Search folders - use the simple method without isDeleted
         List<FolderEntity> matchingFolders = folderRepository
-                .findByUserIdAndFolderNameContainingIgnoreCaseAndIsDeletedFalse(userId, searchTerm);
+                .findByUserIdAndFolderNameContainingIgnoreCase(userId, searchTerm);
 
-        // Search files
+        // Search files - use the simple method without isDeleted
         List<FileEntity> matchingFiles = fileRepository
-                .findByUserIdAndFileNameContainingIgnoreCaseAndIsDeletedFalse(userId, searchTerm);
+                .findByUserIdAndFileNameContainingIgnoreCase(userId, searchTerm);
 
-        // Combine results and sort by relevance/date
+        // Filter out deleted files manually
+        List<FileEntity> activeFiles = matchingFiles.stream()
+                .filter(file -> !file.getIsDeleted())
+                .toList();
+
+        // Combine results
         List<Object> allResults = new ArrayList<>();
         allResults.addAll(matchingFolders);
-        allResults.addAll(matchingFiles);
+        allResults.addAll(activeFiles);
 
         // Sort by creation date (newest first)
         allResults.sort((a, b) -> {
@@ -363,7 +368,7 @@ public class FileServiceImpl implements FileService {
         // Apply pagination
         Page<Object> pagedResults = applyPagination(allResults, pageable);
 
-        // Separate folders and files from paged results
+        // Convert to response objects
         List<SearchResponse.FolderResult> folders = new ArrayList<>();
         List<SearchResponse.FileResult> files = new ArrayList<>();
 
@@ -384,12 +389,38 @@ public class FileServiceImpl implements FileService {
                         .build())
                 .pagination(buildSearchPagination(pagedResults))
                 .summary(SearchResponse.SummaryInfo.builder()
-                        .totalResults(matchingFolders.size() + matchingFiles.size())
+                        .totalResults(matchingFolders.size() + activeFiles.size())
                         .totalFolders(matchingFolders.size())
-                        .totalFiles(matchingFiles.size())
+                        .totalFiles(activeFiles.size())
                         .build())
                 .build();
     }
+
+
+    @Override
+    public SearchResponse searchItemsInFolder(UUID folderId, String query, Pageable pageable) throws ItemNotFoundException {
+
+        if (query == null || query.trim().isEmpty()) {
+            throw new RuntimeException("Search query cannot be empty");
+        }
+
+        AccountEntity user = getAuthenticatedAccount();
+        UUID userId = user.getId();
+        String searchTerm = query.trim();
+
+        log.info("Searching for '{}' recursively in folder {} for user: {}", searchTerm, folderId, user.getUserName());
+
+        // Validate folder ownership if provided
+        validateFolderAccess(folderId, userId);
+
+        // Get all folders and files recursively
+        List<FolderEntity> allFolders = getAllFoldersRecursive(userId, folderId, searchTerm);
+        List<FileEntity> allFiles = getAllFilesRecursive(userId, folderId, searchTerm);
+
+        // Build and return response
+        return buildSearchResponse(searchTerm, allFolders, allFiles, pageable);
+    }
+
 
     private String processBatchUpload(String batchId, UUID folderId, List<MultipartFile> files, BatchUploadOptions options, UUID userId, String folderPath) throws ItemNotFoundException {
 
@@ -1268,6 +1299,8 @@ public class FileServiceImpl implements FileService {
     }
 
 
+
+    // Simple folder conversion
     private SearchResponse.FolderResult convertToSearchFolderResult(FolderEntity folder) {
         return SearchResponse.FolderResult.builder()
                 .id(folder.getFolderId())
@@ -1300,6 +1333,7 @@ public class FileServiceImpl implements FileService {
                 .build();
     }
 
+
     private SearchResponse.PaginationInfo buildSearchPagination(Page<Object> page) {
         return SearchResponse.PaginationInfo.builder()
                 .page(page.getNumber())
@@ -1329,5 +1363,134 @@ public class FileServiceImpl implements FileService {
 
         List<Object> pagedItems = items.subList(start, end);
         return new PageImpl<>(pagedItems, pageable, items.size());
+    }
+
+    private List<FolderEntity> getAllFoldersRecursive(UUID userId, UUID folderId, String searchTerm) {
+        // Get all folder IDs in scope (current folder + all subfolders)
+        List<UUID> folderIds = getFolderIdsInScope(userId, folderId);
+
+        List<FolderEntity> matchingFolders = new ArrayList<>();
+
+        for (UUID currentFolderId : folderIds) {
+            List<FolderEntity> foldersInThisLevel = folderRepository
+                    .findByUserIdAndParentFolder_FolderIdAndFolderNameContainingIgnoreCase(userId, currentFolderId, searchTerm);
+            matchingFolders.addAll(foldersInThisLevel);
+        }
+
+        return matchingFolders;
+    }
+
+    private List<FileEntity> getAllFilesRecursive(UUID userId, UUID folderId, String searchTerm) {
+        // Get all folder IDs in scope (current folder + all subfolders)
+        List<UUID> folderIds = getFolderIdsInScope(userId, folderId);
+
+        List<FileEntity> matchingFiles = new ArrayList<>();
+
+        // Search in each folder
+        for (UUID currentFolderId : folderIds) {
+            List<FileEntity> filesInThisFolder = fileRepository
+                    .findByUserIdAndFolder_FolderIdAndFileNameContainingIgnoreCase(userId, currentFolderId, searchTerm);
+            matchingFiles.addAll(filesInThisFolder);
+        }
+
+        // Also search root level if folderId is null
+        if (folderId == null) {
+            List<FileEntity> rootFiles = fileRepository
+                    .findByUserIdAndFolderIsNullAndFileNameContainingIgnoreCase(userId, searchTerm);
+            matchingFiles.addAll(rootFiles);
+        }
+
+        // Filter out deleted files
+        return matchingFiles.stream().filter(file -> !file.getIsDeleted()).toList();
+    }
+
+    private List<UUID> getFolderIdsInScope(UUID userId, UUID folderId) {
+        List<UUID> folderIds = new ArrayList<>();
+
+        if (folderId == null) {
+            // If no folder specified, get all root folders and their children
+            List<FolderEntity> rootFolders = folderRepository.findByUserIdAndParentFolderIsNull(userId);
+            for (FolderEntity rootFolder : rootFolders) {
+                folderIds.add(rootFolder.getFolderId());
+                folderIds.addAll(getAllSubfolderIds(rootFolder.getFolderId(), userId));
+            }
+        } else {
+            // Include the specified folder and all its subfolders
+            folderIds.add(folderId);
+            folderIds.addAll(getAllSubfolderIds(folderId, userId));
+        }
+
+        return folderIds;
+    }
+
+    private List<UUID> getAllSubfolderIds(UUID parentFolderId, UUID userId) {
+        List<UUID> subfolderIds = new ArrayList<>();
+
+        List<FolderEntity> directSubfolders = folderRepository
+                .findByUserIdAndParentFolder_FolderId(userId, parentFolderId);
+
+        for (FolderEntity subfolder : directSubfolders) {
+            subfolderIds.add(subfolder.getFolderId());
+            // Recursively get subfolders of this subfolder
+            subfolderIds.addAll(getAllSubfolderIds(subfolder.getFolderId(), userId));
+        }
+
+        return subfolderIds;
+    }
+
+    private void validateFolderAccess(UUID folderId, UUID userId) throws ItemNotFoundException {
+        if (folderId == null) return;
+
+        FolderEntity folder = folderRepository.findById(folderId)
+                .orElseThrow(() -> new ItemNotFoundException("Folder not found"));
+
+        if (!folder.getUserId().equals(userId)) {
+            throw new RuntimeException("Access denied: You don't own this folder");
+        }
+    }
+
+    private SearchResponse buildSearchResponse(String searchTerm, List<FolderEntity> folders,
+                                               List<FileEntity> files, Pageable pageable) {
+        // Combine and sort
+        List<Object> allResults = new ArrayList<>();
+        allResults.addAll(folders);
+        allResults.addAll(files);
+        allResults.sort(this::compareByName);
+
+        // Paginate and convert
+        Page<Object> pagedResults = applyPagination(allResults, pageable);
+
+        List<SearchResponse.FolderResult> folderResults = new ArrayList<>();
+        List<SearchResponse.FileResult> fileResults = new ArrayList<>();
+
+        for (Object item : pagedResults.getContent()) {
+            if (item instanceof FolderEntity) {
+                folderResults.add(convertToSearchFolderResult((FolderEntity) item));
+            } else {
+                fileResults.add(convertToSearchFileResult((FileEntity) item));
+            }
+        }
+
+        return SearchResponse.builder()
+                .query(searchTerm)
+                .contents(SearchResponse.Contents.builder()
+                        .folders(folderResults)
+                        .files(fileResults)
+                        .build())
+                .pagination(buildSearchPagination(pagedResults))
+                .summary(SearchResponse.SummaryInfo.builder()
+                        .totalResults(folders.size() + files.size())
+                        .totalFolders(folders.size())
+                        .totalFiles(files.size())
+                        .build())
+                .build();
+    }
+
+    private int compareByName(Object a, Object b) {
+        String nameA = a instanceof FolderEntity ?
+                ((FolderEntity) a).getFolderName() : ((FileEntity) a).getFileName();
+        String nameB = b instanceof FolderEntity ?
+                ((FolderEntity) b).getFolderName() : ((FileEntity) b).getFileName();
+        return nameA.compareToIgnoreCase(nameB);
     }
 }
