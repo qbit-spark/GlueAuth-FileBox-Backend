@@ -52,4 +52,10 @@ public class FileEntity {
     @UpdateTimestamp
     private LocalDateTime updatedAt;
 
+    @Column(name = "is_deleted")
+    private Boolean isDeleted = false;
+
+    @Column(name = "deleted_at")
+    private LocalDateTime deletedAt;
+
 }

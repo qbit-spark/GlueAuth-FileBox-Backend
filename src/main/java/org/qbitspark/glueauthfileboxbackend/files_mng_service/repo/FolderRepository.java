@@ -37,6 +37,12 @@ public interface FolderRepository extends JpaRepository<FolderEntity, UUID> {
     // Delete the folder and all its contents (cascade should handle this, but explicit method)
     void deleteByFolderIdAndUserId(UUID folderId, UUID userId);
 
+    long countByUserIdAndParentFolder_FolderIdAndIsDeletedFalse(UUID userId, UUID parentFolderId);
+
     long countByUserIdAndParentFolderIsNull(UUID userId);
     long countByUserIdAndParentFolder_FolderId(UUID userId, UUID parentFolderId);
+
+    List<FolderEntity> findByUserIdAndFolderNameContainingIgnoreCaseAndIsDeletedFalse(
+            UUID userId, String searchTerm);
+
 }

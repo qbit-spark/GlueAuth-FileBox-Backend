@@ -12,6 +12,8 @@ import org.qbitspark.glueauthfileboxbackend.globeadvice.exceptions.ItemNotFoundE
 import org.qbitspark.glueauthfileboxbackend.globeadvice.exceptions.RandomExceptions;
 import org.qbitspark.glueauthfileboxbackend.globeresponsebody.GlobeSuccessResponseBuilder;
 import org.springframework.core.io.InputStreamResource;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Pageable;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContextHolder;
@@ -325,6 +327,54 @@ public class FileController {
 
         return fileService.previewFile(fileId);
     }
+
+    @DeleteMapping("/{fileId}")
+    public ResponseEntity<GlobeSuccessResponseBuilder> deleteFile(@PathVariable UUID fileId) throws ItemNotFoundException {
+
+        log.info("Delete request for file: {}", fileId);
+
+        fileService.deleteFile(fileId);
+
+        return ResponseEntity.ok(
+                GlobeSuccessResponseBuilder.success("File moved to trash successfully")
+        );
+    }
+
+    @PostMapping("/{fileId}/restore")
+    public ResponseEntity<GlobeSuccessResponseBuilder> restoreFile(@PathVariable UUID fileId) throws ItemNotFoundException {
+
+        log.info("Restore request for file: {}", fileId);
+
+        fileService.restoreFile(fileId);
+
+        return ResponseEntity.ok(
+                GlobeSuccessResponseBuilder.success("File restored successfully")
+        );
+    }
+
+
+    @GetMapping("/search")
+    public ResponseEntity<GlobeSuccessResponseBuilder> searchItems(
+            @RequestParam String q,
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "20") int size) throws ItemNotFoundException {
+
+        log.info("Search request: '{}' (page: {}, size: {})", q, page, size);
+
+        int limitedSize = Math.min(size, 100);
+        Pageable pageable = PageRequest.of(page, limitedSize);
+
+        SearchResponse response = fileService.searchItems(q, pageable);
+
+        log.info("Search '{}' returned {} folders and {} files",
+                q, response.getSummary().getTotalFolders(), response.getSummary().getTotalFiles());
+
+        return ResponseEntity.ok(
+                GlobeSuccessResponseBuilder.success("Search completed successfully", response)
+        );
+    }
+
+
 
 
     // Private helper methods for batch monitoring

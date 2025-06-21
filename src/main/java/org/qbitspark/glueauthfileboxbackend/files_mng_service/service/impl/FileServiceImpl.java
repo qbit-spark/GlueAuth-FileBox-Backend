@@ -20,6 +20,9 @@ import org.qbitspark.glueauthfileboxbackend.virus_scanner_service.config.VirusSc
 import org.qbitspark.glueauthfileboxbackend.virus_scanner_service.payload.VirusScanResult;
 import org.qbitspark.glueauthfileboxbackend.virus_scanner_service.service.VirusScanService;
 import org.springframework.core.io.InputStreamResource;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageImpl;
+import org.springframework.data.domain.Pageable;
 import org.springframework.http.ResponseEntity;
 import org.springframework.scheduling.annotation.Async;
 import org.springframework.security.core.Authentication;
@@ -152,6 +155,239 @@ public class FileServiceImpl implements FileService {
                 .canDownload(canDownloadFile(file.getScanStatus()))
                 .uploadedAt(file.getCreatedAt())
                 .updatedAt(file.getUpdatedAt())
+                .build();
+    }
+
+
+    @Override
+    public UploadStatus getUploadStatus(String uploadId) {
+        return uploadStatuses.get(uploadId);
+    }
+
+    @Override
+    public void cleanupUploadStatus(String uploadId) {
+        uploadStatuses.remove(uploadId);
+    }
+
+    @Override
+    public ResponseEntity<InputStreamResource> downloadFile(UUID fileId) throws ItemNotFoundException {
+
+        AccountEntity user = getAuthenticatedAccount();
+
+        // Get file and validate ownership
+        FileEntity file = fileRepository.findById(fileId)
+                .orElseThrow(() -> new ItemNotFoundException("File not found"));
+
+        if (!file.getUserId().equals(user.getId())) {
+            throw new RuntimeException("Access denied: You don't own this file");
+        }
+
+        // Check virus scan status
+        if (file.getScanStatus() == VirusScanStatus.INFECTED) {
+            throw new RuntimeException("File blocked: Contains virus");
+        }
+
+        // Get file stream from MinIO
+        InputStream fileStream = minioService.downloadFile(user.getId(), file.getMinioKey());
+
+        // Set response headers (FIXED)
+        HttpHeaders headers = new HttpHeaders();
+        headers.add(HttpHeaders.CONTENT_DISPOSITION,
+                "attachment; filename=\"" + file.getFileName() + "\"");
+        headers.setContentType(MediaType.parseMediaType(
+                file.getMimeType() != null ? file.getMimeType() : "application/octet-stream"));
+        headers.setContentLength(file.getFileSize());
+
+        log.info("File download started: {} by user: {}", file.getFileName(), user.getUserName());
+
+        return ResponseEntity.ok()
+                .headers(headers)
+                .body(new InputStreamResource(fileStream));
+    }
+
+
+    // Add to FileServiceImpl.java
+    @Override
+    public ResponseEntity<InputStreamResource> previewFile(UUID fileId) throws ItemNotFoundException {
+
+        AccountEntity user = getAuthenticatedAccount();
+
+        // Get file and validate ownership
+        FileEntity file = fileRepository.findById(fileId)
+                .orElseThrow(() -> new ItemNotFoundException("File not found"));
+
+        if (!file.getUserId().equals(user.getId())) {
+            throw new RuntimeException("Access denied: You don't own this file");
+        }
+
+        // Check virus scan status
+        if (file.getScanStatus() == VirusScanStatus.INFECTED) {
+            throw new RuntimeException("File blocked: Contains virus");
+        }
+
+        // Check if a file can be previewed
+        if (!canPreviewFile(file.getMimeType(), file.getScanStatus())) {
+            throw new RuntimeException("Preview not available for this file type");
+        }
+
+        // Get file stream from MinIO
+        InputStream fileStream = minioService.downloadFile(user.getId(), file.getMinioKey());
+
+        // Set preview headers (inline, not download)
+        HttpHeaders headers = new HttpHeaders();
+        headers.add(HttpHeaders.CONTENT_DISPOSITION, "inline; filename=\"" + file.getFileName() + "\"");
+        headers.setContentType(MediaType.parseMediaType(file.getMimeType()));
+        headers.setContentLength(file.getFileSize());
+
+        log.info("File preview: {} by user: {}", file.getFileName(), user.getUserName());
+
+        return ResponseEntity.ok()
+                .headers(headers)
+                .body(new InputStreamResource(fileStream));
+    }
+
+    @Override
+    @Transactional
+    public void deleteFile(UUID fileId) throws ItemNotFoundException {
+
+        AccountEntity user = getAuthenticatedAccount();
+
+        // Get a file and validate ownership
+        FileEntity file = fileRepository.findById(fileId)
+                .orElseThrow(() -> new ItemNotFoundException("File not found"));
+
+        if (!file.getUserId().equals(user.getId())) {
+            throw new RuntimeException("Access denied: You don't own this file");
+        }
+
+        if (file.getIsDeleted()) {
+            throw new RuntimeException("File already deleted");
+        }
+
+        // Create a unique trash key to prevent conflicts
+        String originalKey = file.getMinioKey();
+        String trashKey = "TRASH_" + UUID.randomUUID() + "_" + originalKey;
+
+        // Rename in MinIO
+        minioService.renameFile(user.getId(), originalKey, trashKey);
+
+        // Update database
+        file.setMinioKey(trashKey);
+        file.setIsDeleted(true);
+        file.setDeletedAt(LocalDateTime.now());
+        fileRepository.save(file);
+
+        log.info("File moved to trash: {} ({})", file.getFileName(), user.getUserName());
+    }
+
+    @Override
+    @Transactional
+    public void restoreFile(UUID fileId) throws ItemNotFoundException {
+
+        AccountEntity user = getAuthenticatedAccount();
+
+        // Get deleted file and validate ownership
+        FileEntity file = fileRepository.findById(fileId)
+                .orElseThrow(() -> new ItemNotFoundException("File not found"));
+
+        if (!file.getUserId().equals(user.getId())) {
+            throw new RuntimeException("Access denied: You don't own this file");
+        }
+
+        if (!file.getIsDeleted()) {
+            throw new RuntimeException("File is not deleted");
+        }
+
+        // Extract original key from trash key
+        String trashKey = file.getMinioKey();
+        String originalKey = extractOriginalKeyFromTrash(trashKey);
+
+        // Handle potential name conflicts in restore location
+        String finalFileName = handleRestoreNameConflict(user.getId(), file, originalKey);
+
+        // Rename in MinIO back to original location
+        minioService.renameFile(user.getId(), trashKey, originalKey);
+
+        // Update database
+        file.setMinioKey(originalKey);
+        file.setIsDeleted(false);
+        file.setDeletedAt(null);
+
+        // Update filename if there was a conflict
+        if (!finalFileName.equals(file.getFileName())) {
+            file.setFileName(finalFileName);
+            log.info("File renamed during restore: {} -> {}", file.getFileName(), finalFileName);
+        }
+
+        fileRepository.save(file);
+
+        log.info("File restored from trash: {} ({})", file.getFileName(), user.getUserName());
+    }
+
+    // Add to FileServiceImpl.java
+    @Override
+    public SearchResponse searchItems(String query, Pageable pageable) throws ItemNotFoundException {
+
+        if (query == null || query.trim().isEmpty()) {
+            throw new RuntimeException("Search query cannot be empty");
+        }
+
+        AccountEntity user = getAuthenticatedAccount();
+        UUID userId = user.getId();
+        String searchTerm = query.trim();
+
+        log.info("Searching for '{}' for user: {}", searchTerm, user.getUserName());
+
+        // Search folders
+        List<FolderEntity> matchingFolders = folderRepository
+                .findByUserIdAndFolderNameContainingIgnoreCaseAndIsDeletedFalse(userId, searchTerm);
+
+        // Search files
+        List<FileEntity> matchingFiles = fileRepository
+                .findByUserIdAndFileNameContainingIgnoreCaseAndIsDeletedFalse(userId, searchTerm);
+
+        // Combine results and sort by relevance/date
+        List<Object> allResults = new ArrayList<>();
+        allResults.addAll(matchingFolders);
+        allResults.addAll(matchingFiles);
+
+        // Sort by creation date (newest first)
+        allResults.sort((a, b) -> {
+            LocalDateTime dateA = a instanceof FolderEntity ?
+                    ((FolderEntity) a).getCreatedAt() : ((FileEntity) a).getCreatedAt();
+            LocalDateTime dateB = b instanceof FolderEntity ?
+                    ((FolderEntity) b).getCreatedAt() : ((FileEntity) b).getCreatedAt();
+            return dateB.compareTo(dateA);
+        });
+
+        // Apply pagination
+        Page<Object> pagedResults = applyPagination(allResults, pageable);
+
+        // Separate folders and files from paged results
+        List<SearchResponse.FolderResult> folders = new ArrayList<>();
+        List<SearchResponse.FileResult> files = new ArrayList<>();
+
+        for (Object item : pagedResults.getContent()) {
+            if (item instanceof FolderEntity) {
+                folders.add(convertToSearchFolderResult((FolderEntity) item));
+            } else if (item instanceof FileEntity) {
+                files.add(convertToSearchFileResult((FileEntity) item));
+            }
+        }
+
+        // Build response
+        return SearchResponse.builder()
+                .query(searchTerm)
+                .contents(SearchResponse.Contents.builder()
+                        .folders(folders)
+                        .files(files)
+                        .build())
+                .pagination(buildSearchPagination(pagedResults))
+                .summary(SearchResponse.SummaryInfo.builder()
+                        .totalResults(matchingFolders.size() + matchingFiles.size())
+                        .totalFolders(matchingFolders.size())
+                        .totalFiles(matchingFiles.size())
+                        .build())
                 .build();
     }
 
@@ -634,95 +870,6 @@ public class FileServiceImpl implements FileService {
         markUploadFailed(uploadId, e.getMessage());
     }
 
-
-    @Override
-    public UploadStatus getUploadStatus(String uploadId) {
-        return uploadStatuses.get(uploadId);
-    }
-
-    @Override
-    public void cleanupUploadStatus(String uploadId) {
-        uploadStatuses.remove(uploadId);
-    }
-
-    @Override
-    public ResponseEntity<InputStreamResource> downloadFile(UUID fileId) throws ItemNotFoundException {
-
-        AccountEntity user = getAuthenticatedAccount();
-
-        // Get file and validate ownership
-        FileEntity file = fileRepository.findById(fileId)
-                .orElseThrow(() -> new ItemNotFoundException("File not found"));
-
-        if (!file.getUserId().equals(user.getId())) {
-            throw new RuntimeException("Access denied: You don't own this file");
-        }
-
-        // Check virus scan status
-        if (file.getScanStatus() == VirusScanStatus.INFECTED) {
-            throw new RuntimeException("File blocked: Contains virus");
-        }
-
-        // Get file stream from MinIO
-        InputStream fileStream = minioService.downloadFile(user.getId(), file.getMinioKey());
-
-        // Set response headers (FIXED)
-        HttpHeaders headers = new HttpHeaders();
-        headers.add(HttpHeaders.CONTENT_DISPOSITION,
-                "attachment; filename=\"" + file.getFileName() + "\"");
-        headers.setContentType(MediaType.parseMediaType(
-                file.getMimeType() != null ? file.getMimeType() : "application/octet-stream"));
-        headers.setContentLength(file.getFileSize());
-
-        log.info("File download started: {} by user: {}", file.getFileName(), user.getUserName());
-
-        return ResponseEntity.ok()
-                .headers(headers)
-                .body(new InputStreamResource(fileStream));
-    }
-
-
-    // Add to FileServiceImpl.java
-    @Override
-    public ResponseEntity<InputStreamResource> previewFile(UUID fileId) throws ItemNotFoundException {
-
-        AccountEntity user = getAuthenticatedAccount();
-
-        // Get file and validate ownership
-        FileEntity file = fileRepository.findById(fileId)
-                .orElseThrow(() -> new ItemNotFoundException("File not found"));
-
-        if (!file.getUserId().equals(user.getId())) {
-            throw new RuntimeException("Access denied: You don't own this file");
-        }
-
-        // Check virus scan status
-        if (file.getScanStatus() == VirusScanStatus.INFECTED) {
-            throw new RuntimeException("File blocked: Contains virus");
-        }
-
-        // Check if a file can be previewed
-        if (!canPreviewFile(file.getMimeType(), file.getScanStatus())) {
-            throw new RuntimeException("Preview not available for this file type");
-        }
-
-        // Get file stream from MinIO
-        InputStream fileStream = minioService.downloadFile(user.getId(), file.getMinioKey());
-
-        // Set preview headers (inline, not download)
-        HttpHeaders headers = new HttpHeaders();
-        headers.add(HttpHeaders.CONTENT_DISPOSITION, "inline; filename=\"" + file.getFileName() + "\"");
-        headers.setContentType(MediaType.parseMediaType(file.getMimeType()));
-        headers.setContentLength(file.getFileSize());
-
-        log.info("File preview: {} by user: {}", file.getFileName(), user.getUserName());
-
-        return ResponseEntity.ok()
-                .headers(headers)
-                .body(new InputStreamResource(fileStream));
-    }
-
-
     private VirusScanStatus performVirusScan(MultipartFile file) {
         if (!virusScanConfig.isEnabled()) {
             log.info("Virus scanning disabled for file: {}", file.getOriginalFilename());
@@ -918,13 +1065,6 @@ public class FileServiceImpl implements FileService {
         return currentFileName;
     }
 
-    private String getFileBaseName(String fileName) {
-        int lastDotIndex = fileName.lastIndexOf('.');
-        if (lastDotIndex == -1) {
-            return fileName; // No extension
-        }
-        return fileName.substring(0, lastDotIndex);
-    }
 
     private String getFileExtension(String fileName) {
         int lastDotIndex = fileName.lastIndexOf('.');
@@ -1048,5 +1188,146 @@ public class FileServiceImpl implements FileService {
         if (mimeType.startsWith("text/")) return "text";
 
         return "file";
+    }
+
+
+    // Helper method to extract original key from trash key
+    private String extractOriginalKeyFromTrash(String trashKey) {
+        if (trashKey.startsWith("TRASH_")) {
+            // Format: "TRASH_uuid_original/path/file.ext"
+            int firstUnderscore = trashKey.indexOf("_");
+            int secondUnderscore = trashKey.indexOf("_", firstUnderscore + 1);
+            if (secondUnderscore != -1) {
+                return trashKey.substring(secondUnderscore + 1);
+            }
+        }
+        return trashKey; // Fallback
+    }
+
+    // Handle name conflicts during restore
+    private String handleRestoreNameConflict(UUID userId, FileEntity file, String originalKey) {
+        UUID folderId = file.getFolder() != null ? file.getFolder().getFolderId() : null;
+        String fileName = file.getFileName();
+
+        // Check if active file with same name exists in target location
+        boolean conflict = false;
+        if (folderId == null) {
+            conflict = fileRepository.findByUserIdAndFileNameAndFolderIsNullAndIsDeletedFalse(
+                    userId, fileName).isPresent();
+        } else {
+            conflict = fileRepository.findByUserIdAndFileNameAndFolder_FolderIdAndIsDeletedFalse(
+                    userId, fileName, folderId).isPresent();
+        }
+
+        if (conflict) {
+            // Generate new name to avoid conflict
+            return generateUniqueFileName(userId, fileName, folderId);
+        }
+
+        return fileName; // No conflict
+    }
+
+    // Generate unique filename for restore conflicts
+    private String generateUniqueFileName(UUID userId, String originalFileName, UUID folderId) {
+        String baseName = getFileBaseName(originalFileName);
+        String extension = getFileExtension(originalFileName);
+
+        String currentFileName = originalFileName;
+        int counter = 1;
+
+        while (activeFileExistsInLocation(userId, currentFileName, folderId)) {
+            currentFileName = baseName + " (" + counter + ")" + extension;
+            counter++;
+
+            if (counter > 1000) {
+                throw new RuntimeException("Too many files with similar names");
+            }
+        }
+
+        return currentFileName;
+    }
+
+    // Check if active file exists in location
+    private boolean activeFileExistsInLocation(UUID userId, String fileName, UUID folderId) {
+        if (folderId == null) {
+            return fileRepository.findByUserIdAndFileNameAndFolderIsNullAndIsDeletedFalse(
+                    userId, fileName).isPresent();
+        } else {
+            return fileRepository.findByUserIdAndFileNameAndFolder_FolderIdAndIsDeletedFalse(
+                    userId, fileName, folderId).isPresent();
+        }
+    }
+
+    // Helper method to get file base name (without extension)
+    private String getFileBaseName(String fileName) {
+        int lastDotIndex = fileName.lastIndexOf('.');
+        if (lastDotIndex == -1) {
+            return fileName;
+        }
+        return fileName.substring(0, lastDotIndex);
+    }
+
+
+    private SearchResponse.FolderResult convertToSearchFolderResult(FolderEntity folder) {
+        return SearchResponse.FolderResult.builder()
+                .id(folder.getFolderId())
+                .name(folder.getFolderName())
+                .type("folder")
+                .folderPath(folder.getParentFolder() != null ? folder.getParentFolder().getFullPath() : "Root")
+                .itemCount(countItemsInFolder(folder.getFolderId(), folder.getUserId()))
+                .hasSubfolders(hasSubfolders(folder.getFolderId(), folder.getUserId()))
+                .createdAt(folder.getCreatedAt())
+                .updatedAt(folder.getUpdatedAt())
+                .build();
+    }
+
+    private SearchResponse.FileResult convertToSearchFileResult(FileEntity file) {
+        return SearchResponse.FileResult.builder()
+                .id(file.getFileId())
+                .name(file.getFileName())
+                .type("file")
+                .size(file.getFileSize())
+                .sizeFormatted(formatFileSize(file.getFileSize()))
+                .mimeType(file.getMimeType())
+                .extension(getFileExtension(file.getFileName()))
+                .category(getFileCategory(file.getMimeType()))
+                .scanStatus(file.getScanStatus().toString())
+                .folderPath(file.getFolder() != null ? file.getFolder().getFullPath() : "Root")
+                .canPreview(canPreviewFile(file.getMimeType(), file.getScanStatus()))
+                .canDownload(canDownloadFile(file.getScanStatus()))
+                .createdAt(file.getCreatedAt())
+                .updatedAt(file.getUpdatedAt())
+                .build();
+    }
+
+    private SearchResponse.PaginationInfo buildSearchPagination(Page<Object> page) {
+        return SearchResponse.PaginationInfo.builder()
+                .page(page.getNumber())
+                .size(page.getSize())
+                .totalElements(page.getTotalElements())
+                .totalPages(page.getTotalPages())
+                .hasNext(page.hasNext())
+                .hasPrevious(page.hasPrevious())
+                .isFirst(page.isFirst())
+                .isLast(page.isLast())
+                .build();
+    }
+
+    private int countItemsInFolder(UUID folderId, UUID userId) {
+        long folders = folderRepository.countByUserIdAndParentFolder_FolderIdAndIsDeletedFalse(userId, folderId);
+        long files = fileRepository.countByUserIdAndFolder_FolderIdAndIsDeletedFalse(userId, folderId);
+        return (int) (folders + files);
+    }
+
+    private boolean hasSubfolders(UUID folderId, UUID userId) {
+        return folderRepository.countByUserIdAndParentFolder_FolderIdAndIsDeletedFalse(userId, folderId) > 0;
+    }
+
+    private Page<Object> applyPagination(List<Object> items, Pageable pageable) {
+        int start = (int) pageable.getOffset();
+        int end = Math.min(start + pageable.getPageSize(), items.size());
+
+        List<Object> pagedItems = items.subList(start, end);
+        return new PageImpl<>(pagedItems, pageable, items.size());
     }
 }

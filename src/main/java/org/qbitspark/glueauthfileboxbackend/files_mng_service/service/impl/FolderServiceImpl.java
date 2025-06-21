@@ -243,7 +243,7 @@ public class FolderServiceImpl implements FolderService {
     private List<Object> getAllItemsSorted(UUID userId, UUID folderId, boolean isRoot) {
         List<Object> allItems = new ArrayList<>();
 
-        // Get folders
+        // Get active folders only
         List<FolderEntity> folders;
         if (isRoot) {
             folders = folderRepository.findByUserIdAndParentFolderIsNull(userId);
@@ -252,12 +252,12 @@ public class FolderServiceImpl implements FolderService {
         }
         allItems.addAll(folders);
 
-        // Get files
+        // Get active files only (exclude deleted)
         List<FileEntity> files;
         if (isRoot) {
-            files = fileRepository.findByUserIdAndFolderIsNull(userId);
+            files = fileRepository.findByUserIdAndFolderIsNullAndIsDeletedFalse(userId);
         } else {
-            files = fileRepository.findByUserIdAndFolder_FolderId(userId, folderId);
+            files = fileRepository.findByUserIdAndFolder_FolderIdAndIsDeletedFalse(userId, folderId);
         }
         allItems.addAll(files);
 
@@ -332,16 +332,20 @@ public class FolderServiceImpl implements FolderService {
                 .build();
     }
 
+    // Now this will work with the new repository methods
     private FolderContentsResponse.Statistics buildStatistics(UUID userId, UUID folderId, boolean isRoot, int currentFolders, int currentFiles) {
+
+        // Count active folders (use the existing method since folders don't have soft delete yet)
         long totalFolders = isRoot
                 ? folderRepository.countByUserIdAndParentFolderIsNull(userId)
                 : folderRepository.countByUserIdAndParentFolder_FolderId(userId, folderId);
 
+        // Count active files only (exclude deleted files)
         long totalFiles = isRoot
-                ? fileRepository.countByUserIdAndFolderIsNull(userId)
-                : fileRepository.countByUserIdAndFolder_FolderId(userId, folderId);
+                ? fileRepository.countByUserIdAndFolderIsNullAndIsDeletedFalse(userId)
+                : fileRepository.countByUserIdAndFolder_FolderIdAndIsDeletedFalse(userId, folderId);
 
-        // TODO: Calculate total size
+        // TODO: Calculate total size of active files only
         long totalSize = 0;
 
         return FolderContentsResponse.Statistics.builder()
@@ -439,14 +443,16 @@ public class FolderServiceImpl implements FolderService {
         return "file";
     }
 
+
     private int countItemsInFolder(UUID folderId, UUID userId) {
-        long folders = folderRepository.countByUserIdAndParentFolder_FolderId(userId, folderId);
-        long files = fileRepository.countByUserIdAndFolder_FolderId(userId, folderId);
+        long folders = folderRepository.countByUserIdAndParentFolder_FolderIdAndIsDeletedFalse(userId, folderId);
+        long files = fileRepository.countByUserIdAndFolder_FolderIdAndIsDeletedFalse(userId, folderId);
         return (int) (folders + files);
     }
 
     private boolean hasSubfolders(UUID folderId, UUID userId) {
-        return folderRepository.countByUserIdAndParentFolder_FolderId(userId, folderId) > 0;
+        return folderRepository.countByUserIdAndParentFolder_FolderIdAndIsDeletedFalse(userId, folderId) > 0;
     }
+
 
 }

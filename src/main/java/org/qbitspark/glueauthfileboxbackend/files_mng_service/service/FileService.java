@@ -3,6 +3,7 @@ package org.qbitspark.glueauthfileboxbackend.files_mng_service.service;
 import org.qbitspark.glueauthfileboxbackend.files_mng_service.payload.*;
 import org.qbitspark.glueauthfileboxbackend.globeadvice.exceptions.ItemNotFoundException;
 import org.springframework.core.io.InputStreamResource;
+import org.springframework.data.domain.Pageable;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.multipart.MultipartFile;
 
@@ -27,4 +28,9 @@ public interface FileService {
     ResponseEntity<InputStreamResource> downloadFile(UUID fileId) throws ItemNotFoundException;
 
     ResponseEntity<InputStreamResource> previewFile(UUID fileId) throws ItemNotFoundException;
+
+    void deleteFile(UUID fileId) throws ItemNotFoundException;
+    void restoreFile(UUID fileId) throws ItemNotFoundException;
+
+ SearchResponse searchItems(String query, Pageable pageable) throws ItemNotFoundException;
 }

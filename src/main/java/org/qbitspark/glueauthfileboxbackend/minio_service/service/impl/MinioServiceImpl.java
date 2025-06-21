@@ -353,4 +353,38 @@ public class MinioServiceImpl implements MinioService {
             throw new RuntimeException("Failed to generate presigned URL", e);
         }
     }
+
+
+    @Override
+    public void renameFile(UUID userId, String oldKey, String newKey) {
+        try {
+            String bucketName = getBucketName(userId);
+
+            // Copy to new location
+            minioClient.copyObject(
+                    CopyObjectArgs.builder()
+                            .bucket(bucketName)
+                            .object(newKey)
+                            .source(CopySource.builder()
+                                    .bucket(bucketName)
+                                    .object(oldKey)
+                                    .build())
+                            .build()
+            );
+
+            // Delete old object
+            minioClient.removeObject(
+                    RemoveObjectArgs.builder()
+                            .bucket(bucketName)
+                            .object(oldKey)
+                            .build()
+            );
+
+            log.info("File renamed in MinIO: {} -> {}", oldKey, newKey);
+
+        } catch (Exception e) {
+            log.error("Failed to rename file in MinIO: {} -> {}", oldKey, newKey, e);
+            throw new RuntimeException("Failed to rename file in storage", e);
+        }
+    }
 }

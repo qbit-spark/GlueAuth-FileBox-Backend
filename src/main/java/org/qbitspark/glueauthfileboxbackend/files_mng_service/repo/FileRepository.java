@@ -56,6 +56,19 @@ public interface FileRepository extends JpaRepository<FileEntity, UUID> {
     // Delete a file by ID and user (security check)
     void deleteByFileIdAndUserId(UUID fileId, UUID userId);
 
-    long countByUserIdAndFolderIsNull(UUID userId);
-    long countByUserIdAndFolder_FolderId(UUID userId, UUID folderId);
+
+    List<FileEntity> findByUserIdAndFolderIsNullAndIsDeletedFalse(UUID userId);
+    List<FileEntity> findByUserIdAndFolder_FolderIdAndIsDeletedFalse(UUID userId, UUID folderId);
+    Optional<FileEntity> findByUserIdAndFileNameAndFolderIsNullAndIsDeletedFalse(UUID userId, String fileName);
+    Optional<FileEntity> findByUserIdAndFileNameAndFolder_FolderIdAndIsDeletedFalse(UUID userId, String fileName, UUID folderId);
+
+
+    // Find deleted files (trash)
+    List<FileEntity> findByUserIdAndIsDeletedTrue(UUID userId);
+
+    long countByUserIdAndFolder_FolderIdAndIsDeletedFalse(UUID userId, UUID folderId);
+    long countByUserIdAndFolderIsNullAndIsDeletedFalse(UUID userId);
+
+    List<FileEntity> findByUserIdAndFileNameContainingIgnoreCaseAndIsDeletedFalse(
+            UUID userId, String searchTerm);
 }

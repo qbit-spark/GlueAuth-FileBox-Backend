@@ -47,6 +47,12 @@ public class FolderEntity {
     @UpdateTimestamp
     private LocalDateTime updatedAt;
 
+    @Column(name = "is_deleted")
+    private Boolean isDeleted = false;
+
+    @Column(name = "deleted_at")
+    private LocalDateTime deletedAt;
+
     // Helper method to get full folder path
     public String getFullPath() {
         if (parentFolder == null) {
@@ -55,8 +61,5 @@ public class FolderEntity {
         return parentFolder.getFullPath() + "/" + folderName;
     }
 
-    // Helper method to check if this is root folder
-    public boolean isRootFolder() {
-        return parentFolder == null;
-    }
+
 }

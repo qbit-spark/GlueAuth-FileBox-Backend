@@ -35,4 +35,6 @@ public interface MinioService {
     // Presigned URLs (for future direct access)
     String generatePresignedDownloadUrl(UUID userId, String objectKey, int expirationInMinutes);
     String generatePresignedUploadUrl(UUID userId, String objectKey, int expirationInMinutes);
+
+    void renameFile(UUID userId, String oldKey, String newKey);
 }
