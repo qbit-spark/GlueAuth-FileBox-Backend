@@ -5,12 +5,11 @@ import lombok.extern.slf4j.Slf4j;
 import org.qbitspark.glueauthfileboxbackend.authentication_service.Repository.AccountRepo;
 import org.qbitspark.glueauthfileboxbackend.authentication_service.entity.AccountEntity;
 import org.qbitspark.glueauthfileboxbackend.files_mng_service.entity.FolderEntity;
-import org.qbitspark.glueauthfileboxbackend.files_mng_service.payload.FileData;
-import org.qbitspark.glueauthfileboxbackend.files_mng_service.payload.FileUploadResponse;
-import org.qbitspark.glueauthfileboxbackend.files_mng_service.payload.UploadStatus;
+import org.qbitspark.glueauthfileboxbackend.files_mng_service.payload.*;
 import org.qbitspark.glueauthfileboxbackend.files_mng_service.repo.FolderRepository;
 import org.qbitspark.glueauthfileboxbackend.files_mng_service.service.FileService;
 import org.qbitspark.glueauthfileboxbackend.globeadvice.exceptions.ItemNotFoundException;
+import org.qbitspark.glueauthfileboxbackend.globeadvice.exceptions.RandomExceptions;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContextHolder;
@@ -21,9 +20,11 @@ import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
 import java.io.IOException;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeUnit;
 
 @RestController
@@ -105,13 +106,12 @@ public class FileController {
     }
 
 
-
     @GetMapping("/upload-status/{uploadId}")
-    public ResponseEntity<UploadStatus> getUploadStatus(@PathVariable String uploadId) {
+    public ResponseEntity<UploadStatus> getUploadStatus(@PathVariable String uploadId) throws RandomExceptions {
         UploadStatus status = fileService.getUploadStatus(uploadId);
 
         if (status == null) {
-            return ResponseEntity.notFound().build();
+            throw new RandomExceptions("The task do not exit or ready flushed");
         }
 
         return ResponseEntity.ok(status);
@@ -133,6 +133,357 @@ public class FileController {
         CompletableFuture.runAsync(() -> monitorUploadStatus(uploadId, emitter));
 
         return emitter;
+    }
+
+
+    /**
+     * Batch upload multiple files with individual tracking
+     */
+    @PostMapping("/upload-batch")
+    public ResponseEntity<Map<String, Object>> uploadFilesBatch(
+            @RequestParam(value = "folderId", required = false) UUID folderId,
+            @RequestParam("files") List<MultipartFile> files,
+            @RequestParam(value = "maxConcurrentUploads", defaultValue = "3") int maxConcurrentUploads,
+            @RequestParam(value = "stopOnFirstError", defaultValue = "false") boolean stopOnFirstError,
+            @RequestParam(value = "allowDuplicates", defaultValue = "false") boolean allowDuplicates) throws RandomExceptions, ExecutionException, InterruptedException, ItemNotFoundException {
+
+        // Get authenticated user
+        Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
+        AccountEntity authenticatedUser = extractAccount(authentication);
+        UUID userId = authenticatedUser.getId();
+
+        // Get folder data
+        String folderPath = "";
+        if (folderId != null) {
+            FolderEntity folder = folderRepository.findById(folderId)
+                    .orElseThrow(() -> new ItemNotFoundException("Folder not found"));
+
+            if (!folder.getUserId().equals(userId)) {
+                throw new RuntimeException("Access denied: You don't own this folder");
+            }
+
+            folderPath = folder.getFullPath();
+        }
+
+
+
+        // Validate input
+        if (files == null || files.isEmpty()) {
+            throw new RandomExceptions("No files provided");
+        }
+
+        if (files.size() > 50) { // Reasonable limit
+            throw new RandomExceptions("Too many files. Maximum 50 files per batch.");
+        }
+
+        // Validate individual files
+        for (MultipartFile file : files) {
+            if (file.isEmpty()) {
+                throw new RandomExceptions("One or more files are empty");
+            }
+        }
+
+        // Create batch upload options
+        BatchUploadOptions options = BatchUploadOptions.builder()
+                .maxConcurrentUploads(Math.min(maxConcurrentUploads, 10)) // Cap at 10
+                .stopOnFirstError(stopOnFirstError)
+                .allowDuplicates(allowDuplicates)
+                .virusScanTimeout(30000)
+                .build();
+
+        // Start batch upload
+        CompletableFuture<String> batchFuture = fileService.uploadFilesBatch(folderId, files, options, userId, folderPath);
+        String batchId = batchFuture.get(); // This returns immediately with batchId
+
+        Map<String, Object> response = new HashMap<>();
+        response.put("batchId", batchId);
+        response.put("totalFiles", files.size());
+        response.put("message", "Batch upload started");
+        response.put("statusUrl", "/api/v1/files/batch-status/" + batchId);
+        response.put("streamUrl", "/api/v1/files/batch-status/" + batchId + "/stream");
+
+        return ResponseEntity.ok(response);
+
+    }
+
+    /**
+     * Get batch upload status
+     */
+    @GetMapping("/batch-status/{batchId}")
+    public ResponseEntity<BatchUploadStatus> getBatchStatus(@PathVariable String batchId) throws RandomExceptions {
+        BatchUploadStatus status = fileService.getBatchUploadStatus(batchId);
+
+        if (status == null) {
+            throw new RandomExceptions("Batch not found or was already cleaned");
+        }
+
+        return ResponseEntity.ok(status);
+    }
+
+    /**
+     * Stream batch upload progress via SSE
+     */
+    @GetMapping("/batch-status/{batchId}/stream")
+    public SseEmitter streamBatchStatus(@PathVariable String batchId) {
+        SseEmitter emitter = new SseEmitter(600_000L); // 10 minutes for batch uploads
+
+        emitter.onError(throwable -> {
+            log.warn("SSE error for batch {}: {}", batchId, throwable.getMessage());
+        });
+
+        emitter.onTimeout(() -> {
+            log.warn("SSE timeout for batch {}", batchId);
+        });
+
+        CompletableFuture.runAsync(() -> monitorBatchStatus(batchId, emitter));
+
+        return emitter;
+    }
+
+    /**
+     * Get individual file status within a batch
+     */
+    @GetMapping("/batch-status/{batchId}/file/{uploadId}")
+    public ResponseEntity<UploadStatus> getFileStatusInBatch(
+            @PathVariable String batchId,
+            @PathVariable String uploadId) {
+
+        BatchUploadStatus batchStatus = fileService.getBatchUploadStatus(batchId);
+        if (batchStatus == null) {
+            return ResponseEntity.notFound().build();
+        }
+
+        UploadStatus fileStatus = batchStatus.getFiles().get(uploadId);
+        if (fileStatus == null) {
+            return ResponseEntity.notFound().build();
+        }
+
+        return ResponseEntity.ok(fileStatus);
+    }
+
+    /**
+     * Cancel a batch upload (the best effort)
+     */
+    @PostMapping("/batch-status/{batchId}/cancel")
+    public ResponseEntity<Map<String, String>> cancelBatchUpload(@PathVariable String batchId) throws RandomExceptions {
+        BatchUploadStatus status = fileService.getBatchUploadStatus(batchId);
+
+        if (status == null) {
+            throw new RandomExceptions("Batch not found");
+        }
+
+        if ("COMPLETED".equals(status.getStatus()) || "FAILED".equals(status.getStatus())) {
+            throw new RandomExceptions("Batch already completed or failed");
+        }
+
+        // Note: Actual cancellation would require additional implementation
+        // to interrupt running tasks - this is a placeholder
+        Map<String, String> response = new HashMap<>();
+        response.put("message", "Cancellation requested (some files may still complete)");
+        return ResponseEntity.ok(response);
+    }
+
+    /**
+     * Cleanup batch status
+     */
+    @DeleteMapping("/batch-status/{batchId}")
+    public ResponseEntity<Void> cleanupBatchStatus(@PathVariable String batchId) {
+        fileService.cleanupBatchUploadStatus(batchId);
+        return ResponseEntity.noContent().build();
+    }
+
+
+    // Private helper methods for batch monitoring
+    private void monitorBatchStatus(String batchId, SseEmitter emitter) {
+        long startTime = System.currentTimeMillis();
+        BatchUploadStatus lastBatchStatus = null;
+        int consecutiveErrors = 0;
+        final long MAX_MONITORING_TIME = 540_000L; // 9 minutes (leave buffer)
+        final int POLL_INTERVAL_SECONDS = 2; // Slower polling for batch
+
+        try {
+            BatchUploadStatus initialStatus = fileService.getBatchUploadStatus(batchId);
+            if (initialStatus != null) {
+                sendBatchProgressUpdate(emitter, initialStatus);
+                lastBatchStatus = initialStatus;
+
+                if (isBatchFinalStatus(initialStatus)) {
+                    sendBatchCompletion(emitter, initialStatus);
+                    emitter.complete();
+                    scheduleBatchCleanup(batchId);
+                    return;
+                }
+            } else {
+                sendBatchError(emitter, "Batch not found");
+                emitter.complete();
+                return;
+            }
+
+            while (!Thread.currentThread().isInterrupted()) {
+                long elapsedTime = System.currentTimeMillis() - startTime;
+                if (elapsedTime > MAX_MONITORING_TIME) {
+                    log.warn("SSE monitoring exceeded time limit for batch: {}", batchId);
+                    sendBatchError(emitter, "Monitoring time limit exceeded");
+                    break;
+                }
+
+                try {
+                    BatchUploadStatus currentStatus = fileService.getBatchUploadStatus(batchId);
+
+                    if (currentStatus == null) {
+                        consecutiveErrors++;
+                        if (consecutiveErrors >= 5) {
+                            sendBatchError(emitter, "Batch status unavailable");
+                            break;
+                        }
+                        TimeUnit.SECONDS.sleep(POLL_INTERVAL_SECONDS);
+                        continue;
+                    }
+
+                    consecutiveErrors = 0;
+
+                    if (shouldSendBatchUpdate(lastBatchStatus, currentStatus)) {
+                        sendBatchProgressUpdate(emitter, currentStatus);
+                        lastBatchStatus = currentStatus;
+                    }
+
+                    if (isBatchFinalStatus(currentStatus)) {
+                        sendBatchCompletion(emitter, currentStatus);
+                        break;
+                    }
+
+                    TimeUnit.SECONDS.sleep(POLL_INTERVAL_SECONDS);
+
+                } catch (InterruptedException ie) {
+                    Thread.currentThread().interrupt();
+                    log.info("SSE monitoring interrupted for batch: {}", batchId);
+                    break;
+                } catch (Exception e) {
+                    consecutiveErrors++;
+                    log.error("Error monitoring batch {} (attempt {}): {}", batchId, consecutiveErrors, e.getMessage());
+
+                    if (consecutiveErrors >= 5) {
+                        sendBatchError(emitter, "Too many errors occurred");
+                        break;
+                    }
+
+                    try {
+                        TimeUnit.SECONDS.sleep(POLL_INTERVAL_SECONDS);
+                    } catch (InterruptedException ie) {
+                        Thread.currentThread().interrupt();
+                        break;
+                    }
+                }
+            }
+
+        } catch (Exception e) {
+            handleBatchMonitorError(batchId, emitter, e);
+        } finally {
+            try {
+                emitter.complete();
+                scheduleBatchCleanup(batchId);
+            } catch (Exception e) {
+                log.error("Error completing SSE emitter for batch {}: {}", batchId, e.getMessage());
+            }
+        }
+    }
+
+    // Helper methods for batch monitoring
+    private boolean shouldSendBatchUpdate(BatchUploadStatus last, BatchUploadStatus current) {
+        if (last == null) return true;
+        return hasBatchStatusChanged(last, current);
+    }
+
+    private boolean isBatchFinalStatus(BatchUploadStatus status) {
+        return status != null && ("COMPLETED".equals(status.getStatus()) ||
+                "FAILED".equals(status.getStatus()) ||
+                "PARTIAL".equals(status.getStatus()));
+    }
+
+    private void sendBatchProgressUpdate(SseEmitter emitter, BatchUploadStatus status) throws IOException {
+        // Send overall batch progress
+        emitter.send(SseEmitter.event().name("batch-progress").data(status));
+
+        // Send individual file updates that have changed
+        for (Map.Entry<String, UploadStatus> entry : status.getFiles().entrySet()) {
+            UploadStatus fileStatus = entry.getValue();
+            if (fileStatus.getLastUpdated().isAfter(
+                    status.getLastUpdated().minusSeconds(3))) { // Recently updated files
+
+                Map<String, Object> fileUpdate = new HashMap<>();
+                fileUpdate.put("uploadId", entry.getKey());
+                fileUpdate.put("status", fileStatus);
+
+                emitter.send(SseEmitter.event().name("file-progress").data(fileUpdate));
+            }
+        }
+
+        log.debug("Sent batch progress update: {} - {:.1f}%",
+                status.getStatus(), status.getOverallProgress());
+    }
+
+    private void sendBatchError(SseEmitter emitter, String message) throws IOException {
+        Map<String, String> errorData = Map.of("error", message);
+        emitter.send(SseEmitter.event().name("batch-error").data(errorData));
+        log.warn("Sent batch error event: {}", message);
+    }
+
+    private void sendBatchCompletion(SseEmitter emitter, BatchUploadStatus status) throws IOException {
+        emitter.send(SseEmitter.event().name("batch-complete").data(status));
+        log.info("Batch upload completed: {} - {} files completed, {} failed",
+                status.getBatchId(), status.getCompletedFiles(), status.getFailedFiles());
+    }
+
+    private void handleBatchMonitorError(String batchId, SseEmitter emitter, Exception e) {
+        log.error("SSE monitoring error for batch {}: {}", batchId, e.getMessage());
+        try {
+            sendBatchError(emitter, "Internal monitoring error");
+        } catch (Exception sendError) {
+            log.error("Failed to send batch error event: {}", sendError.getMessage());
+        }
+        emitter.completeWithError(e);
+    }
+
+    private boolean hasBatchStatusChanged(BatchUploadStatus last, BatchUploadStatus current) {
+        if (last == null || current == null) return true;
+
+        return !safeEquals(last.getStatus(), current.getStatus()) ||
+                Math.abs(last.getOverallProgress() - current.getOverallProgress()) > 0.1 ||
+                last.getCompletedFiles() != current.getCompletedFiles() ||
+                last.getFailedFiles() != current.getFailedFiles() ||
+                !safeEquals(last.getMessage(), current.getMessage()) ||
+                hasAnyFileStatusChanged(last.getFiles(), current.getFiles());
+    }
+
+    private boolean hasAnyFileStatusChanged(Map<String, UploadStatus> lastFiles,
+                                            Map<String, UploadStatus> currentFiles) {
+        if (lastFiles.size() != currentFiles.size()) return true;
+
+        for (Map.Entry<String, UploadStatus> entry : currentFiles.entrySet()) {
+            String uploadId = entry.getKey();
+            UploadStatus currentFile = entry.getValue();
+            UploadStatus lastFile = lastFiles.get(uploadId);
+
+            if (lastFile == null || hasStatusChanged(lastFile, currentFile)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private void scheduleBatchCleanup(String batchId) {
+        CompletableFuture.runAsync(() -> {
+            try {
+                TimeUnit.MINUTES.sleep(5); // Wait 5 minutes for batch cleanup
+                fileService.cleanupBatchUploadStatus(batchId);
+                log.info("Cleaned up batch status for: {}", batchId);
+            } catch (InterruptedException ie) {
+                Thread.currentThread().interrupt();
+                log.warn("Batch cleanup interrupted for: {}", batchId);
+            } catch (Exception e) {
+                log.error("Error during batch cleanup for {}: {}", batchId, e.getMessage());
+            }
+        });
     }
 
     private void monitorUploadStatus(String uploadId, SseEmitter emitter) {

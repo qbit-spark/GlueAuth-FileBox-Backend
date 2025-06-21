@@ -5,10 +5,13 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.qbitspark.glueauthfileboxbackend.files_mng_service.payload.CreateFolderRequest;
 import org.qbitspark.glueauthfileboxbackend.files_mng_service.payload.CreateFolderResponse;
+import org.qbitspark.glueauthfileboxbackend.files_mng_service.payload.FolderContentsResponse;
 import org.qbitspark.glueauthfileboxbackend.files_mng_service.payload.FolderListResponse;
 import org.qbitspark.glueauthfileboxbackend.files_mng_service.service.FolderService;
 import org.qbitspark.glueauthfileboxbackend.globeadvice.exceptions.ItemNotFoundException;
 import org.qbitspark.glueauthfileboxbackend.globeresponsebody.GlobeSuccessResponseBuilder;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Pageable;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
@@ -67,5 +70,36 @@ public class FolderController {
         return ResponseEntity.ok(
                 GlobeSuccessResponseBuilder.success("Subfolders retrieved successfully", subFolders)
         );
+    }
+
+    @GetMapping("/{folderId}/contents")
+    public ResponseEntity<GlobeSuccessResponseBuilder> getFolderContents(
+            @PathVariable UUID folderId,
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "20") int size,
+            @RequestParam(defaultValue = "100") int maxSize) throws ItemNotFoundException {
+
+        log.info("Getting contents for folder: {} (page: {}, size: {})", folderId, page, size);
+
+        // Limit page size
+        int limitedSize = Math.min(size, maxSize);
+        Pageable pageable = PageRequest.of(page, limitedSize);
+
+        FolderContentsResponse response = folderService.getFolderContents(folderId, pageable);
+
+        log.info("Retrieved {} items for folder: {}",
+                response.getStatistics().getCurrentPage().getItems(), folderId);
+
+        return ResponseEntity.ok(
+                GlobeSuccessResponseBuilder.success("Folder contents retrieved successfully", response)
+        );
+    }
+
+    @GetMapping("/root/contents")
+    public ResponseEntity<GlobeSuccessResponseBuilder> getRootFolderContents(
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "20") int size) throws ItemNotFoundException {
+
+        return getFolderContents(null, page, size, 100);
     }
 }

@@ -8,14 +8,12 @@ import org.qbitspark.glueauthfileboxbackend.files_mng_service.entity.FileEntity;
 import org.qbitspark.glueauthfileboxbackend.files_mng_service.entity.FolderEntity;
 import org.qbitspark.glueauthfileboxbackend.files_mng_service.enums.UploadStage;
 import org.qbitspark.glueauthfileboxbackend.files_mng_service.enums.VirusScanStatus;
-import org.qbitspark.glueauthfileboxbackend.files_mng_service.payload.FileData;
-import org.qbitspark.glueauthfileboxbackend.files_mng_service.payload.FileMetadata;
-import org.qbitspark.glueauthfileboxbackend.files_mng_service.payload.FileUploadResponse;
-import org.qbitspark.glueauthfileboxbackend.files_mng_service.payload.UploadStatus;
+import org.qbitspark.glueauthfileboxbackend.files_mng_service.payload.*;
 import org.qbitspark.glueauthfileboxbackend.files_mng_service.repo.FileRepository;
 import org.qbitspark.glueauthfileboxbackend.files_mng_service.repo.FolderRepository;
 import org.qbitspark.glueauthfileboxbackend.globeadvice.exceptions.ItemNotFoundException;
 import org.qbitspark.glueauthfileboxbackend.files_mng_service.service.FileService;
+import org.qbitspark.glueauthfileboxbackend.globeadvice.exceptions.RandomExceptions;
 import org.qbitspark.glueauthfileboxbackend.globeadvice.exceptions.VirusScanException;
 import org.qbitspark.glueauthfileboxbackend.minio_service.service.MinioService;
 import org.qbitspark.glueauthfileboxbackend.virus_scanner_service.config.VirusScanConfig;
@@ -30,10 +28,13 @@ import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.multipart.MultipartFile;
 
 import java.time.LocalDateTime;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.Semaphore;
 
 @Service
 @RequiredArgsConstructor
@@ -47,6 +48,9 @@ public class FileServiceImpl implements FileService {
     private final VirusScanService virusScanService;
     private final VirusScanConfig virusScanConfig;
     private final Map<String, UploadStatus> uploadStatuses = new ConcurrentHashMap<>();
+
+    private final Map<String, BatchUploadStatus> batchUploadStatuses = new ConcurrentHashMap<>();
+    private final Semaphore uploadSemaphore = new Semaphore(5); // Limit concurrent uploads globally
 
     @Override
     @Transactional
@@ -68,8 +72,6 @@ public class FileServiceImpl implements FileService {
         return processFileUpload(metadata, file, scanStatus);
     }
 
-
-
     @Async("fileUploadExecutor")
     @Transactional
     public CompletableFuture<FileUploadResponse> uploadFileAsync(UUID folderId, FileData fileData, String uploadId, UUID userId, String folderPath) {
@@ -83,6 +85,360 @@ public class FileServiceImpl implements FileService {
             }
         });
     }
+
+    @Override
+    @Async("fileUploadExecutor")
+    public CompletableFuture<String> uploadFilesBatch(UUID folderId, List<MultipartFile> files, BatchUploadOptions options, UUID userId, String folderPath) {
+        String batchId = UUID.randomUUID().toString();
+        log.info("Starting batch upload {} with {} files", batchId, files.size());
+
+        return CompletableFuture.supplyAsync(() -> {
+            try {
+                return processBatchUpload(batchId, folderId, files, options, userId, folderPath);
+            } catch (Exception e) {
+                log.error("Batch upload {} failed: {}", batchId, e.getMessage());
+                markBatchFailed(batchId, e.getMessage());
+                throw new RuntimeException("Batch upload failed: " + e.getMessage(), e);
+            }
+        });
+    }
+
+    @Override
+    public BatchUploadStatus getBatchUploadStatus(String batchId) {
+        return batchUploadStatuses.get(batchId);
+    }
+
+    @Override
+    public void cleanupBatchUploadStatus(String batchId) {
+        batchUploadStatuses.remove(batchId);
+
+        // Also cleanup individual file statuses
+        BatchUploadStatus batchStatus = batchUploadStatuses.get(batchId);
+        if (batchStatus != null) {
+            batchStatus.getFiles().keySet().forEach(uploadStatuses::remove);
+        }
+    }
+
+    private String processBatchUpload(String batchId, UUID folderId, List<MultipartFile> files, BatchUploadOptions options, UUID userId, String folderPath) throws ItemNotFoundException {
+
+
+        // Initialize batch status
+        BatchUploadStatus batchStatus = initializeBatchStatus(batchId, files.size());
+
+        // Convert files to FileData and create individual upload tasks
+        List<CompletableFuture<Void>> uploadTasks = new ArrayList<>();
+
+        for (int i = 0; i < files.size(); i++) {
+            MultipartFile file = files.get(i);
+            String uploadId = batchId + "-file-" + i;
+
+            try {
+                FileData fileData = FileData.builder()
+                        .content(file.getBytes())
+                        .originalFileName(file.getOriginalFilename())
+                        .contentType(file.getContentType())
+                        .size(file.getSize())
+                        .build();
+
+                // Add to batch tracking
+                UploadStatus uploadStatus = UploadStatus.builder()
+                        .uploadId(uploadId)
+                        .fileName(file.getOriginalFilename())
+                        .startTime(LocalDateTime.now())
+                        .stage("QUEUED")
+                        .progress(0)
+                        .message("Queued for upload")
+                        .build();
+
+                batchStatus.getFiles().put(uploadId, uploadStatus);
+
+                // Create async upload task with semaphore control
+                CompletableFuture<Void> uploadTask = createBatchUploadTask(
+                        batchId, uploadId, folderId, fileData, userId, folderPath, options);
+
+                uploadTasks.add(uploadTask);
+
+            } catch (Exception e) {
+                log.error("Failed to prepare file {} for batch {}: {}", file.getOriginalFilename(), batchId, e.getMessage());
+                markFileInBatchFailed(batchId, uploadId, e.getMessage());
+
+
+                if (options.isStopOnFirstError()) {
+                    markBatchFailed(batchId, "Stopped due to file preparation error: " + e.getMessage());
+                    return batchId;
+                }
+            }
+        }
+
+        updateBatchStatus(batchId, "PROCESSING", "Starting file uploads...");
+
+        // Execute uploads with controlled concurrency
+        CompletableFuture<Void> allUploads;
+
+        if (options.getMaxConcurrentUploads() > 0) {
+            // Process in chunks to limit concurrency
+            allUploads = processInChunks(uploadTasks, options.getMaxConcurrentUploads());
+        } else {
+            // Process all at once
+            allUploads = CompletableFuture.allOf(uploadTasks.toArray(new CompletableFuture[0]));
+        }
+
+        // Wait for completion
+        try {
+            allUploads.get();
+            finalizeBatchUpload(batchId);
+        } catch (Exception e) {
+            log.error("Batch upload {} encountered errors: {}", batchId, e.getMessage());
+            markBatchFailed(batchId, "Some uploads failed: " + e.getMessage());
+        }
+
+        return batchId;
+    }
+
+    private CompletableFuture<Void> createBatchUploadTask(String batchId, String uploadId, UUID folderId,
+                                                          FileData fileData, UUID userId, String folderPath,
+                                                          BatchUploadOptions options) {
+        return CompletableFuture.runAsync(() -> {
+            try {
+                // Acquire semaphore for rate limiting
+                uploadSemaphore.acquire();
+
+                try {
+                    // Use existing async upload logic but with batch tracking
+                    FileUploadResponse result = processAsyncUploadForBatch(
+                            folderId, fileData, uploadId, userId, folderPath, batchId);
+
+                    markFileInBatchCompleted(batchId, uploadId, result);
+
+                } finally {
+                    uploadSemaphore.release();
+                }
+
+            } catch (Exception e) {
+                log.error("File upload failed in batch {}, uploadId {}: {}", batchId, uploadId, e.getMessage());
+                markFileInBatchFailed(batchId, uploadId, e.getMessage());
+
+                // If stop on first error is enabled, fail the entire batch
+                if (options.isStopOnFirstError()) {
+                    markBatchFailed(batchId, "Stopped due to file upload error: " + e.getMessage());
+                }
+            }
+        });
+    }
+
+    private CompletableFuture<Void> processInChunks(List<CompletableFuture<Void>> tasks, int chunkSize) {
+        CompletableFuture<Void> result = CompletableFuture.completedFuture(null);
+
+        for (int i = 0; i < tasks.size(); i += chunkSize) {
+            List<CompletableFuture<Void>> chunk = tasks.subList(i, Math.min(i + chunkSize, tasks.size()));
+            CompletableFuture<Void> chunkCompletion = CompletableFuture.allOf(chunk.toArray(new CompletableFuture[0]));
+            result = result.thenCompose(v -> chunkCompletion);
+        }
+
+        return result;
+    }
+
+    private FileUploadResponse processAsyncUploadForBatch(UUID folderId, FileData fileData, String uploadId,
+                                                          UUID userId, String folderPath, String batchId) throws RandomExceptions {
+        try {
+            updateFileInBatch(batchId, uploadId, "VALIDATING", 10, "Starting file validation...");
+
+            // Use existing validation logic
+            validateFileData(fileData);
+            updateFileInBatch(batchId, uploadId, "VALIDATING", 20, "File validation completed ✓");
+
+            // Virus scanning with batch-specific progress
+            VirusScanStatus scanStatus = performVirusScanWithBatchProgress(fileData, uploadId, batchId);
+            updateFileInBatch(batchId, uploadId, "VIRUS_SCANNING", 50, "Virus scan completed: " + scanStatus + " ✓");
+
+            // Continue with existing upload logic...
+            updateFileInBatch(batchId, uploadId, "PREPARING", 55, "Preparing upload...");
+
+            FolderEntity folder = createFolderReference(folderId);
+            String finalFileName = handleDuplicateFileName(userId, fileData.getOriginalFileName(), folderId);
+
+            updateFileInBatch(batchId, uploadId, "PREPARING", 60, "File prepared: " + finalFileName);
+
+            String minioKey = uploadToStorage(userId, folderPath, finalFileName, fileData, uploadId, batchId);
+            updateFileInBatch(batchId, uploadId, "UPLOADING", 90, "Storage upload completed ✓");
+
+            FileEntity savedFile = saveToDatabase(fileData, userId, folder, finalFileName, scanStatus, minioKey, uploadId);
+            updateFileInBatch(batchId, uploadId, "SAVING", 95, "File record saved ✓");
+
+            FileUploadResponse response = buildUploadResponse(savedFile, folder, folderPath, false,
+                    fileData.getOriginalFileName(), finalFileName);
+
+            updateFileInBatch(batchId, uploadId, "COMPLETED", 100, "Upload completed successfully! ✅");
+
+            return response;
+
+        } catch (Exception e) {
+            updateFileInBatch(batchId, uploadId, "FAILED", 0, "Upload failed: " + e.getMessage());
+            throw new RandomExceptions("Upload failed: " + e.getMessage());
+        }
+    }
+
+    // Batch status management methods
+    private BatchUploadStatus initializeBatchStatus(String batchId, int totalFiles) {
+        BatchUploadStatus status = BatchUploadStatus.builder()
+                .batchId(batchId)
+                .totalFiles(totalFiles)
+                .completedFiles(0)
+                .failedFiles(0)
+                .overallProgress(0.0)
+                .status("QUEUED")
+                .startTime(LocalDateTime.now())
+                .lastUpdated(LocalDateTime.now())
+                .files(new ConcurrentHashMap<>())
+                .completedUploads(new ArrayList<>())
+                .message("Batch upload initialized")
+                .build();
+
+        batchUploadStatuses.put(batchId, status);
+        return status;
+    }
+
+    private void updateFileInBatch(String batchId, String uploadId, String stage, int progress, String message) {
+        BatchUploadStatus batchStatus = batchUploadStatuses.get(batchId);
+        if (batchStatus == null) return;
+
+        UploadStatus fileStatus = batchStatus.getFiles().get(uploadId);
+        if (fileStatus != null) {
+            fileStatus.setStage(stage);
+            fileStatus.setProgress(progress);
+            fileStatus.setMessage(message);
+            fileStatus.setLastUpdated(LocalDateTime.now());
+
+            batchStatus.updateOverallProgress();
+        }
+    }
+
+    private void markFileInBatchCompleted(String batchId, String uploadId, FileUploadResponse result) {
+        BatchUploadStatus batchStatus = batchUploadStatuses.get(batchId);
+        if (batchStatus == null) return;
+
+        UploadStatus fileStatus = batchStatus.getFiles().get(uploadId);
+        if (fileStatus != null) {
+            fileStatus.setCompleted(true);
+            fileStatus.setResult(result);
+            fileStatus.setStage("COMPLETED");
+            fileStatus.setProgress(100);
+            fileStatus.setMessage("Upload completed successfully");
+            fileStatus.setLastUpdated(LocalDateTime.now());
+
+            batchStatus.setCompletedFiles(batchStatus.getCompletedFiles() + 1);
+            batchStatus.getCompletedUploads().add(result);
+            batchStatus.updateOverallProgress();
+        }
+    }
+
+    private void markFileInBatchFailed(String batchId, String uploadId, String errorMessage) {
+        BatchUploadStatus batchStatus = batchUploadStatuses.get(batchId);
+        if (batchStatus == null) return;
+
+        UploadStatus fileStatus = batchStatus.getFiles().get(uploadId);
+        if (fileStatus != null) {
+            fileStatus.setFailed(true);
+            fileStatus.setErrorMessage(errorMessage);
+            fileStatus.setStage("FAILED");
+            fileStatus.setMessage("Upload failed: " + errorMessage);
+            fileStatus.setLastUpdated(LocalDateTime.now());
+
+            batchStatus.setFailedFiles(batchStatus.getFailedFiles() + 1);
+            batchStatus.updateOverallProgress();
+        }
+    }
+
+    private void finalizeBatchUpload(String batchId) {
+        BatchUploadStatus batchStatus = batchUploadStatuses.get(batchId);
+        if (batchStatus == null) return;
+
+        batchStatus.updateOverallProgress();
+
+        if (batchStatus.getFailedFiles() == 0) {
+            batchStatus.setStatus("COMPLETED");
+            batchStatus.setMessage("All files uploaded successfully");
+        } else if (batchStatus.getCompletedFiles() > 0) {
+            batchStatus.setStatus("PARTIAL");
+            batchStatus.setMessage(String.format("Batch completed with %d successes and %d failures",
+                    batchStatus.getCompletedFiles(), batchStatus.getFailedFiles()));
+        } else {
+            batchStatus.setStatus("FAILED");
+            batchStatus.setMessage("All files failed to upload");
+        }
+
+        log.info("Batch upload {} finalized: {} completed, {} failed",
+                batchId, batchStatus.getCompletedFiles(), batchStatus.getFailedFiles());
+    }
+
+    private void markBatchFailed(String batchId, String errorMessage) {
+        BatchUploadStatus batchStatus = batchUploadStatuses.get(batchId);
+        if (batchStatus != null) {
+            batchStatus.setStatus("FAILED");
+            batchStatus.setMessage(errorMessage);
+            batchStatus.setLastUpdated(LocalDateTime.now());
+        }
+    }
+
+    private void updateBatchStatus(String batchId, String status, String message) {
+        BatchUploadStatus batchStatus = batchUploadStatuses.get(batchId);
+        if (batchStatus != null) {
+            batchStatus.setStatus(status);
+            batchStatus.setMessage(message);
+            batchStatus.setLastUpdated(LocalDateTime.now());
+        }
+    }
+
+    // Helper methods for batch-specific operations
+    private VirusScanStatus performVirusScanWithBatchProgress(FileData fileData, String uploadId, String batchId) {
+        if (!virusScanConfig.isEnabled()) {
+            updateFileInBatch(batchId, uploadId, "VIRUS_SCANNING", 45, "Virus scanning disabled");
+            return VirusScanStatus.SKIPPED;
+        }
+
+        try {
+            updateFileInBatch(batchId, uploadId, "VIRUS_SCANNING", 25, "Initializing virus scanner...");
+            updateFileInBatch(batchId, uploadId, "VIRUS_SCANNING", 35, "Scanning file content...");
+
+            VirusScanResult result = virusScanService.scanFileContent(fileData.getContent(), fileData.getOriginalFileName());
+
+            if (result.getStatus() == VirusScanStatus.INFECTED) {
+                throw new SecurityException("File rejected: " + result.getMessage());
+            }
+
+            updateFileInBatch(batchId, uploadId, "VIRUS_SCANNING", 45, "Analyzing scan results...");
+            return result.getStatus();
+
+        } catch (VirusScanException e) {
+            if (e.getMessage().contains("TIMED OUT") || e.getMessage().contains("timeout")) {
+                updateFileInBatch(batchId, uploadId, "VIRUS_SCANNING", 45, "Virus scan timed out - proceeding");
+                return VirusScanStatus.SKIPPED;
+            }
+
+            if (virusScanConfig.isFailOnUnavailable()) {
+                throw new SecurityException("Virus scan error: " + e.getMessage());
+            } else {
+                updateFileInBatch(batchId, uploadId, "VIRUS_SCANNING", 45, "Virus scan failed - proceeding");
+                return VirusScanStatus.SKIPPED;
+            }
+        }
+    }
+
+    private String uploadToStorage(UUID userId, String folderPath, String finalFileName,
+                                   FileData fileData, String uploadId, String batchId) {
+        updateFileInBatch(batchId, uploadId, "UPLOADING", 65, "Connecting to storage...");
+        updateFileInBatch(batchId, uploadId, "UPLOADING", 70, "Uploading to storage...");
+
+        String minioKey = minioService.uploadFile(userId, folderPath, finalFileName,
+                fileData.getInputStream(), fileData.getSize(), fileData.getContentType());
+
+        if (minioKey == null || minioKey.trim().isEmpty()) {
+            throw new RuntimeException("MinIO upload failed - returned null/empty key");
+        }
+
+        return minioKey;
+    }
+
 
     private FileUploadResponse processAsyncUpload(UUID folderId, FileData fileData, String uploadId, UUID userId, String folderPath) {
 
@@ -122,7 +478,6 @@ public class FileServiceImpl implements FileService {
 
         return response;
     }
-
 
 
     // Helper Methods
@@ -184,7 +539,6 @@ public class FileServiceImpl implements FileService {
             }
         }
     }
-
 
     private FolderEntity createFolderReference(UUID folderId) {
         if (folderId == null) {

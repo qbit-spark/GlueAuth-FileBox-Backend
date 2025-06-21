@@ -1,0 +1,496 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Batch Upload SSE Test</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 20px;
+        }
+
+        .container {
+            max-width: 1000px;
+            margin: 0 auto;
+            background: white;
+            border-radius: 15px;
+            padding: 30px;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.2);
+        }
+
+        .header {
+            text-align: center;
+            margin-bottom: 30px;
+        }
+
+        .header h1 {
+            color: #333;
+            margin-bottom: 10px;
+        }
+
+        .upload-section {
+            border: 2px dashed #ddd;
+            border-radius: 10px;
+            padding: 30px;
+            text-align: center;
+            margin-bottom: 20px;
+            transition: border-color 0.3s;
+        }
+
+        .upload-section:hover {
+            border-color: #667eea;
+        }
+
+        .file-input {
+            display: none;
+        }
+
+        .upload-btn {
+            background: linear-gradient(45deg, #667eea, #764ba2);
+            color: white;
+            padding: 12px 24px;
+            border: none;
+            border-radius: 8px;
+            cursor: pointer;
+            font-size: 16px;
+            margin: 10px;
+            transition: transform 0.2s;
+        }
+
+        .upload-btn:hover {
+            transform: translateY(-2px);
+        }
+
+        .upload-btn:disabled {
+            background: #ccc;
+            cursor: not-allowed;
+            transform: none;
+        }
+
+        .file-list {
+            margin: 20px 0;
+            text-align: left;
+        }
+
+        .file-item {
+            background: #f8f9fa;
+            padding: 10px;
+            margin: 5px 0;
+            border-radius: 5px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .progress-section {
+            margin-top: 30px;
+        }
+
+        .batch-progress {
+            background: #f0f0f0;
+            border-radius: 10px;
+            padding: 20px;
+            margin-bottom: 20px;
+        }
+
+        .progress-bar {
+            background: #e0e0e0;
+            border-radius: 10px;
+            height: 20px;
+            overflow: hidden;
+            margin: 10px 0;
+        }
+
+        .progress-fill {
+            background: linear-gradient(45deg, #4CAF50, #45a049);
+            height: 100%;
+            border-radius: 10px;
+            transition: width 0.3s ease;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: white;
+            font-size: 12px;
+            font-weight: bold;
+        }
+
+        .file-progress {
+            background: #fafafa;
+            border: 1px solid #eee;
+            border-radius: 8px;
+            padding: 15px;
+            margin: 10px 0;
+        }
+
+        .file-progress h4 {
+            margin-bottom: 10px;
+            color: #333;
+        }
+
+        .status-badge {
+            padding: 4px 8px;
+            border-radius: 4px;
+            font-size: 12px;
+            font-weight: bold;
+        }
+
+        .status-queued { background: #ffeaa7; color: #2d3436; }
+        .status-validating { background: #74b9ff; color: white; }
+        .status-virus_scanning { background: #fd79a8; color: white; }
+        .status-preparing { background: #fdcb6e; color: #2d3436; }
+        .status-uploading { background: #6c5ce7; color: white; }
+        .status-saving { background: #a29bfe; color: white; }
+        .status-completed { background: #00b894; color: white; }
+        .status-failed { background: #e17055; color: white; }
+
+        .logs {
+            background: #2d3436;
+            color: #ddd;
+            padding: 15px;
+            border-radius: 8px;
+            height: 200px;
+            overflow-y: auto;
+            font-family: 'Courier New', monospace;
+            font-size: 12px;
+            margin-top: 20px;
+        }
+
+        .log-entry {
+            margin: 2px 0;
+            padding: 2px 0;
+        }
+
+        .log-info { color: #74b9ff; }
+        .log-success { color: #00b894; }
+        .log-error { color: #e17055; }
+        .log-warning { color: #fdcb6e; }
+
+        .config-section {
+            background: #f8f9fa;
+            padding: 15px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+        }
+
+        .config-row {
+            display: flex;
+            gap: 15px;
+            margin: 10px 0;
+            align-items: center;
+        }
+
+        .config-row label {
+            min-width: 150px;
+            font-weight: bold;
+        }
+
+        .config-row input {
+            padding: 5px 10px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+        }
+    </style>
+</head>
+<body>
+<div class="container">
+    <div class="header">
+        <h1>🚀 Batch Upload SSE Test</h1>
+        <p>Test your batch upload functionality with real-time progress tracking</p>
+    </div>
+
+    <div class="config-section">
+        <h3>Configuration</h3>
+        <div class="config-row">
+            <label>API Base URL:</label>
+            <input type="text" id="apiUrl" value="http://localhost:8080/api/v1/files" />
+        </div>
+        <div class="config-row">
+            <label>Access Token:</label>
+            <input type="text" id="accessToken" value="eyJhbGciOiJIUzM4NCJ9.eyJzdWIiOiJqb3NodWFzaW1vbjY1NiIsImlhdCI6MTc1MDIyNzU3NiwiZXhwIjoxNzUwODMyMzc2LCJ0b2tlblR5cGUiOiJBQ0NFU1MifQ.ntktSq6XyY50rLQyzP1_ZOo-a2SBOdjYMqBjdaKuSVE_qApnQNWSb7mVEfimTd3L" />
+        </div>
+        <div class="config-row">
+            <label>Folder ID (optional):</label>
+            <input type="text" id="folderId" placeholder="Leave empty for root" />
+        </div>
+        <div class="config-row">
+            <label>Max Concurrent:</label>
+            <input type="number" id="maxConcurrent" value="3" min="1" max="10" />
+        </div>
+        <div class="config-row">
+            <label>Stop on Error:</label>
+            <input type="checkbox" id="stopOnError" />
+        </div>
+    </div>
+
+    <div class="upload-section">
+        <h3>📁 Select Files for Batch Upload</h3>
+        <input type="file" id="fileInput" class="file-input" multiple />
+        <button class="upload-btn" onclick="document.getElementById('fileInput').click()">
+            Choose Files
+        </button>
+        <button class="upload-btn" id="uploadBtn" onclick="startBatchUpload()" disabled>
+            Start Batch Upload
+        </button>
+        <button class="upload-btn" onclick="clearFiles()">Clear</button>
+    </div>
+
+    <div class="file-list" id="fileList"></div>
+
+    <div class="progress-section" id="progressSection" style="display: none;">
+        <div class="batch-progress">
+            <h3>📊 Batch Progress</h3>
+            <div class="progress-bar">
+                <div class="progress-fill" id="batchProgressFill" style="width: 0%">0%</div>
+            </div>
+            <div id="batchStatus">Status: Initializing...</div>
+            <div id="batchStats">Files: 0/0 | Completed: 0 | Failed: 0</div>
+        </div>
+
+        <div id="fileProgressContainer">
+            <h4>📄 Individual File Progress</h4>
+        </div>
+    </div>
+
+    <div class="logs" id="logs">
+        <div class="log-entry log-info">🔧 SSE Test Console Ready</div>
+        <div class="log-entry log-info">ℹ️ Configure your settings above and select files to begin</div>
+    </div>
+</div>
+
+<script>
+    let selectedFiles = [];
+    let currentBatchId = null;
+    let eventSource = null;
+
+    // File selection handling
+    document.getElementById('fileInput').addEventListener('change', function(e) {
+        selectedFiles = Array.from(e.target.files);
+        updateFileList();
+        updateUploadButton();
+    });
+
+    function updateFileList() {
+        const fileList = document.getElementById('fileList');
+        if (selectedFiles.length === 0) {
+            fileList.innerHTML = '<div style="text-align: center; color: #666;">No files selected</div>';
+            return;
+        }
+
+        fileList.innerHTML = '<h4>Selected Files:</h4>' +
+            selectedFiles.map((file, index) => `
+                    <div class="file-item">
+                        <span>📄 ${file.name} (${formatFileSize(file.size)})</span>
+                        <button onclick="removeFile(${index})" style="background: #e17055; color: white; border: none; padding: 4px 8px; border-radius: 4px; cursor: pointer;">✕</button>
+                    </div>
+                `).join('');
+    }
+
+    function removeFile(index) {
+        selectedFiles.splice(index, 1);
+        updateFileList();
+        updateUploadButton();
+    }
+
+    function clearFiles() {
+        selectedFiles = [];
+        document.getElementById('fileInput').value = '';
+        updateFileList();
+        updateUploadButton();
+    }
+
+    function updateUploadButton() {
+        const uploadBtn = document.getElementById('uploadBtn');
+        uploadBtn.disabled = selectedFiles.length === 0;
+    }
+
+    function formatFileSize(bytes) {
+        if (bytes === 0) return '0 Bytes';
+        const k = 1024;
+        const sizes = ['Bytes', 'KB', 'MB', 'GB'];
+        const i = Math.floor(Math.log(bytes) / Math.log(k));
+        return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
+    }
+
+    function addLog(message, type = 'info') {
+        const logs = document.getElementById('logs');
+        const timestamp = new Date().toLocaleTimeString();
+        const logEntry = document.createElement('div');
+        logEntry.className = `log-entry log-${type}`;
+        logEntry.innerHTML = `[${timestamp}] ${message}`;
+        logs.appendChild(logEntry);
+        logs.scrollTop = logs.scrollHeight;
+    }
+
+    async function startBatchUpload() {
+        if (selectedFiles.length === 0) {
+            addLog('❌ No files selected', 'error');
+            return;
+        }
+
+        const apiUrl = document.getElementById('apiUrl').value;
+        const accessToken = document.getElementById('accessToken').value;
+        const folderId = document.getElementById('folderId').value;
+        const maxConcurrent = document.getElementById('maxConcurrent').value;
+        const stopOnError = document.getElementById('stopOnError').checked;
+
+        // Prepare form data
+        const formData = new FormData();
+        selectedFiles.forEach(file => {
+            formData.append('files', file);
+        });
+
+        if (folderId) {
+            formData.append('folderId', folderId);
+        }
+        formData.append('maxConcurrentUploads', maxConcurrent);
+        formData.append('stopOnFirstError', stopOnError);
+
+        try {
+            addLog('🚀 Starting batch upload...', 'info');
+
+            const response = await fetch(`${apiUrl}/upload-batch`, {
+                method: 'POST',
+                headers: {
+                    'Authorization': `Bearer ${accessToken}`
+                },
+                body: formData
+            });
+
+            if (!response.ok) {
+                throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+            }
+
+            const result = await response.json();
+            currentBatchId = result.batchId;
+
+            addLog(`✅ Batch upload started: ${currentBatchId}`, 'success');
+            addLog(`📊 Total files: ${result.totalFiles}`, 'info');
+
+            // Show progress section
+            document.getElementById('progressSection').style.display = 'block';
+
+            // Start SSE monitoring
+            startSSEMonitoring(result.batchId);
+
+        } catch (error) {
+            addLog(`❌ Upload failed: ${error.message}`, 'error');
+            console.error('Upload error:', error);
+        }
+    }
+
+    function startSSEMonitoring(batchId) {
+        const apiUrl = document.getElementById('apiUrl').value;
+        const accessToken = document.getElementById('accessToken').value;
+
+        // Close existing connection
+        if (eventSource) {
+            eventSource.close();
+        }
+
+        // For now, try without token since your single file SSE works without it
+        const sseUrl = `${apiUrl}/batch-status/${batchId}/stream`;
+        addLog(`🔌 Connecting to SSE: ${sseUrl}`, 'info');
+
+        eventSource = new EventSource(sseUrl);
+
+        eventSource.onopen = function(event) {
+            addLog('✅ SSE connection established', 'success');
+        };
+
+        eventSource.addEventListener('batch-progress', function(event) {
+            const batchStatus = JSON.parse(event.data);
+            updateBatchProgress(batchStatus);
+        });
+
+        eventSource.addEventListener('file-progress', function(event) {
+            const fileUpdate = JSON.parse(event.data);
+            updateFileProgress(fileUpdate.uploadId, fileUpdate.status);
+        });
+
+        eventSource.addEventListener('batch-complete', function(event) {
+            const finalStatus = JSON.parse(event.data);
+            addLog('🎉 Batch upload completed!', 'success');
+            updateBatchProgress(finalStatus);
+            eventSource.close();
+            eventSource = null;
+        });
+
+        eventSource.addEventListener('batch-error', function(event) {
+            const error = JSON.parse(event.data);
+            addLog(`❌ Batch error: ${error.error}`, 'error');
+        });
+
+        eventSource.onerror = function(event) {
+            addLog('⚠️ SSE connection error', 'error');
+            console.error('SSE Error:', event);
+        };
+    }
+
+    function updateBatchProgress(batchStatus) {
+        const progressFill = document.getElementById('batchProgressFill');
+        const statusDiv = document.getElementById('batchStatus');
+        const statsDiv = document.getElementById('batchStats');
+
+        const progress = Math.round(batchStatus.overallProgress);
+        progressFill.style.width = `${progress}%`;
+        progressFill.textContent = `${progress}%`;
+
+        statusDiv.textContent = `Status: ${batchStatus.status} - ${batchStatus.message}`;
+        statsDiv.textContent = `Files: ${batchStatus.completedFiles + batchStatus.failedFiles}/${batchStatus.totalFiles} | Completed: ${batchStatus.completedFiles} | Failed: ${batchStatus.failedFiles}`;
+
+        addLog(`📊 Batch progress: ${progress}% (${batchStatus.status})`, 'info');
+    }
+
+    function updateFileProgress(uploadId, fileStatus) {
+        const container = document.getElementById('fileProgressContainer');
+        let fileDiv = document.getElementById(`file-${uploadId}`);
+
+        if (!fileDiv) {
+            fileDiv = document.createElement('div');
+            fileDiv.id = `file-${uploadId}`;
+            fileDiv.className = 'file-progress';
+            container.appendChild(fileDiv);
+        }
+
+        const progress = fileStatus.progress || 0;
+        const stage = fileStatus.stage || 'UNKNOWN';
+        const message = fileStatus.message || '';
+
+        fileDiv.innerHTML = `
+                <h4>📄 ${fileStatus.fileName}</h4>
+                <div class="progress-bar">
+                    <div class="progress-fill" style="width: ${progress}%">${progress}%</div>
+                </div>
+                <div>
+                    <span class="status-badge status-${stage.toLowerCase()}">${stage}</span>
+                    <span>${message}</span>
+                </div>
+            `;
+
+        if (fileStatus.completed) {
+            addLog(`✅ File completed: ${fileStatus.fileName}`, 'success');
+        } else if (fileStatus.failed) {
+            addLog(`❌ File failed: ${fileStatus.fileName} - ${fileStatus.errorMessage}`, 'error');
+        } else {
+            addLog(`🔄 ${fileStatus.fileName}: ${stage} (${progress}%)`, 'info');
+        }
+    }
+
+    // Cleanup on page unload
+    window.addEventListener('beforeunload', function() {
+        if (eventSource) {
+            eventSource.close();
+        }
+    });
+</script>
+</body>
+</html>

@@ -55,4 +55,7 @@ public interface FileRepository extends JpaRepository<FileEntity, UUID> {
 
     // Delete a file by ID and user (security check)
     void deleteByFileIdAndUserId(UUID fileId, UUID userId);
+
+    long countByUserIdAndFolderIsNull(UUID userId);
+    long countByUserIdAndFolder_FolderId(UUID userId, UUID folderId);
 }

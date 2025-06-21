@@ -1,11 +1,10 @@
 package org.qbitspark.glueauthfileboxbackend.files_mng_service.service;
 
-import org.qbitspark.glueauthfileboxbackend.files_mng_service.payload.FileData;
-import org.qbitspark.glueauthfileboxbackend.files_mng_service.payload.FileUploadResponse;
-import org.qbitspark.glueauthfileboxbackend.files_mng_service.payload.UploadStatus;
+import org.qbitspark.glueauthfileboxbackend.files_mng_service.payload.*;
 import org.qbitspark.glueauthfileboxbackend.globeadvice.exceptions.ItemNotFoundException;
 import org.springframework.web.multipart.MultipartFile;
 
+import java.util.List;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 
@@ -16,4 +15,8 @@ public interface FileService {
 
     UploadStatus getUploadStatus(String uploadId);
     void cleanupUploadStatus(String uploadId);
+
+    CompletableFuture<String> uploadFilesBatch(UUID folderId, List<MultipartFile> files, BatchUploadOptions options, UUID userId, String folderPath);
+    BatchUploadStatus getBatchUploadStatus(String batchId);
+    void cleanupBatchUploadStatus(String batchId);
 }
