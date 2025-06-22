@@ -1,5 +1,6 @@
 package org.qbitspark.glueauthfileboxbackend.files_mng_service.controller;
 
+import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.qbitspark.glueauthfileboxbackend.authentication_service.Repository.AccountRepo;
@@ -338,7 +339,7 @@ public class FileController {
         return fileService.previewFile(fileId);
     }
 
-    @DeleteMapping("/{fileId}")
+    @PostMapping("/{fileId}/trash")
     public ResponseEntity<GlobeSuccessResponseBuilder> deleteFile(@PathVariable UUID fileId) throws ItemNotFoundException {
 
         log.info("Delete request for file: {}", fileId);
@@ -347,6 +348,20 @@ public class FileController {
 
         return ResponseEntity.ok(
                 GlobeSuccessResponseBuilder.success("File moved to trash successfully")
+        );
+    }
+
+    @PostMapping("/bulk-trash")
+    public ResponseEntity<GlobeSuccessResponseBuilder> bulkDeleteFiles(
+            @Valid @RequestBody BulkDeleteRequest request) throws ItemNotFoundException {
+
+        log.info("Bulk delete request - Files: {}", request.getFileIds().size());
+
+        BulkDeleteResponse response = fileService.bulkDeleteFiles(request);
+
+        // Return success response with details
+        return ResponseEntity.ok(
+                GlobeSuccessResponseBuilder.success(response.getSummary(), response)
         );
     }
 
@@ -421,6 +436,63 @@ public class FileController {
         );
     }
 
+    @PostMapping("/{fileId}/copy")
+    public ResponseEntity<GlobeSuccessResponseBuilder> copyFile(
+            @PathVariable UUID fileId,
+            @RequestBody CopyFileRequest request) throws ItemNotFoundException {
+
+        log.info("Copy request for file: {} to folder: {}", fileId, request.getDestinationFolderId());
+
+        FileUploadResponse response = fileService.copyFile(fileId, request.getDestinationFolderId());
+
+        return ResponseEntity.ok(
+                GlobeSuccessResponseBuilder.success("File copied successfully", response)
+        );
+    }
+
+    @PostMapping("/bulk-copy")
+    public ResponseEntity<GlobeSuccessResponseBuilder> bulkCopyFiles(
+            @Valid @RequestBody BulkCopyRequest request) throws ItemNotFoundException {
+
+        log.info("Bulk copy request - Files: {}, Destination: {}",
+                request.getFileIds().size(), request.getDestinationFolderId());
+
+        BulkCopyResponse response = fileService.bulkCopyFiles(request);
+
+        return ResponseEntity.ok(
+                GlobeSuccessResponseBuilder.success(response.getSummary(), response)
+        );
+    }
+
+    @PostMapping("/bulk-move")
+    public ResponseEntity<GlobeSuccessResponseBuilder> bulkMoveFiles(
+            @Valid @RequestBody BulkMoveRequest request) throws ItemNotFoundException {
+
+        log.info("Bulk move request - Files: {}, Destination: {}",
+                request.getFileIds().size(), request.getDestinationFolderId());
+
+        BulkMoveResponse response = fileService.bulkMoveFiles(request);
+
+        return ResponseEntity.ok(
+                GlobeSuccessResponseBuilder.success(response.getSummary(), response)
+        );
+    }
+
+
+    @PostMapping("/empty-trash")
+    public ResponseEntity<GlobeSuccessResponseBuilder> emptyTrash(
+            @Valid @RequestBody EmptyTrashRequest request) throws ItemNotFoundException {
+
+        log.info("Empty trash request - Specific files: {}, Continue on error: {}",
+                request.getFileIds() != null ? request.getFileIds().size() : "ALL",
+                request.isContinueOnError());
+
+        EmptyTrashResponse response = fileService.emptyTrash(request);
+
+        return ResponseEntity.ok(
+                GlobeSuccessResponseBuilder.success(response.getSummary(), response)
+        );
+    }
 
     // Private helper methods for batch monitoring
     private void monitorBatchStatus(String batchId, SseEmitter emitter) {
@@ -790,18 +862,4 @@ public class FileController {
         throw new ItemNotFoundException("User is not authenticated");
     }
 
-
-    @PostMapping("/{fileId}/copy")
-    public ResponseEntity<GlobeSuccessResponseBuilder> copyFile(
-            @PathVariable UUID fileId,
-            @RequestBody CopyFileRequest request) throws ItemNotFoundException {
-
-        log.info("Copy request for file: {} to folder: {}", fileId, request.getDestinationFolderId());
-
-        FileUploadResponse response = fileService.copyFile(fileId, request.getDestinationFolderId());
-
-        return ResponseEntity.ok(
-                GlobeSuccessResponseBuilder.success("File copied successfully", response)
-        );
-    }
 }

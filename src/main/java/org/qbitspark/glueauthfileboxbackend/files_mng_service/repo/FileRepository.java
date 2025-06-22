@@ -78,4 +78,7 @@ public interface FileRepository extends JpaRepository<FileEntity, UUID> {
 
     List<FileEntity> findByUserIdAndFolder_FolderIdAndFileNameContainingIgnoreCase(
             UUID userId, UUID folderId, String searchTerm);
+
+    List<FileEntity> findByUserId(UUID userId);
+
 }

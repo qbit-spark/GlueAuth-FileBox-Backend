@@ -43,4 +43,12 @@ public interface FileService {
     void moveFile(UUID fileId, UUID destinationFolderId) throws ItemNotFoundException;
 
     FileUploadResponse copyFile(UUID fileId, UUID destinationFolderId) throws ItemNotFoundException;
+
+    BulkDeleteResponse bulkDeleteFiles(BulkDeleteRequest request) throws ItemNotFoundException;
+
+    BulkCopyResponse bulkCopyFiles(BulkCopyRequest request) throws ItemNotFoundException;
+
+    BulkMoveResponse bulkMoveFiles(BulkMoveRequest request) throws ItemNotFoundException;
+
+    EmptyTrashResponse emptyTrash(EmptyTrashRequest request) throws ItemNotFoundException;
 }

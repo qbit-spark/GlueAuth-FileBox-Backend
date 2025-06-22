@@ -45,6 +45,7 @@ import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.Semaphore;
+import java.util.stream.Collectors;
 
 @Service
 @RequiredArgsConstructor
@@ -524,6 +525,278 @@ public class FileServiceImpl implements FileService {
                 .uploadedAt(savedFile.getCreatedAt())
                 .build();
     }
+
+    @Override
+    @Transactional
+    public BulkDeleteResponse bulkDeleteFiles(BulkDeleteRequest request) throws ItemNotFoundException {
+
+        AccountEntity user = getAuthenticatedAccount();
+        UUID userId = user.getId();
+
+        log.info("Starting bulk file delete for user: {} - Files: {}",
+                user.getUserName(), request.getFileIds().size());
+
+        List<UUID> deletedFileIds = new ArrayList<>();
+        List<BulkDeleteResponse.FailedDeletion> failures = new ArrayList<>();
+
+        // Process file deletions
+        for (UUID fileId : request.getFileIds()) {
+            try {
+                deleteFileInternal(fileId, userId);
+                deletedFileIds.add(fileId);
+                log.debug("Successfully deleted file: {}", fileId);
+
+            } catch (Exception e) {
+                String fileName = getFileNameSafely(fileId);
+                failures.add(BulkDeleteResponse.FailedDeletion.builder()
+                        .fileId(fileId)
+                        .fileName(fileName)
+                        .reason(e.getMessage())
+                        .build());
+
+                log.warn("Failed to delete file {}: {}", fileId, e.getMessage());
+            }
+        }
+
+        int totalRequested = request.getFileIds().size();
+        int successfulDeletions = deletedFileIds.size();
+        int failedDeletions = failures.size();
+
+        String summary = buildDeletionSummary(successfulDeletions, failedDeletions, totalRequested);
+
+        log.info("Bulk delete completed for user: {} - Success: {}, Failed: {}",
+                user.getUserName(), successfulDeletions, failedDeletions);
+
+        return BulkDeleteResponse.builder()
+                .totalFilesRequested(totalRequested)
+                .successfulDeletions(successfulDeletions)
+                .failedDeletions(failedDeletions)
+                .deletedFileIds(deletedFileIds)
+                .failures(failures)
+                .summary(summary)
+                .build();
+    }
+
+    @Override
+    @Transactional
+    public BulkCopyResponse bulkCopyFiles(BulkCopyRequest request) throws ItemNotFoundException {
+
+        AccountEntity user = getAuthenticatedAccount();
+        UUID userId = user.getId();
+
+        log.info("Starting bulk file copy for user: {} - Files: {}, Destination: {}",
+                user.getUserName(), request.getFileIds().size(), request.getDestinationFolderId());
+
+        // Validate destination folder first
+        FolderEntity destinationFolder = validateDestinationFolder(request.getDestinationFolderId(), userId);
+        String destinationPath = destinationFolder != null ? destinationFolder.getFullPath() : "Root";
+
+        List<FileUploadResponse> copiedFiles = new ArrayList<>();
+        List<BulkCopyResponse.FailedOperation> failures = new ArrayList<>();
+
+        // Pre-validate all file permissions
+        List<UUID> validFileIds = validateFilePermissionsForCopy(request.getFileIds(), userId, failures);
+
+        log.info("Permission validation completed - Valid files: {}, Invalid files: {}",
+                validFileIds.size(), failures.size());
+
+        // Process file copies for validated files only
+        for (UUID fileId : validFileIds) {
+            try {
+                FileUploadResponse copiedFile = copyFileInternal(fileId, request.getDestinationFolderId(), userId);
+                copiedFiles.add(copiedFile);
+                log.debug("Successfully copied file: {} to {}", fileId, destinationPath);
+
+            } catch (Exception e) {
+                String fileName = getFileNameSafely(fileId);
+                failures.add(BulkCopyResponse.FailedOperation.builder()
+                        .sourceFileId(fileId)
+                        .fileName(fileName)
+                        .reason("Copy failed: " + e.getMessage())
+                        .build());
+
+                log.warn("Failed to copy file {}: {}", fileId, e.getMessage());
+            }
+        }
+
+        int totalRequested = request.getFileIds().size();
+        int successfulCopies = copiedFiles.size();
+        int failedCopies = failures.size();
+
+        String summary = buildCopySummary(successfulCopies, failedCopies, totalRequested, destinationPath);
+
+        log.info("Bulk copy completed for user: {} - Success: {}, Failed: {}",
+                user.getUserName(), successfulCopies, failedCopies);
+
+        return BulkCopyResponse.builder()
+                .totalFilesRequested(totalRequested)
+                .successfulCopies(successfulCopies)
+                .failedCopies(failedCopies)
+                .copiedFiles(copiedFiles)
+                .failures(failures)
+                .summary(summary)
+                .destinationPath(destinationPath)
+                .build();
+    }
+
+
+    @Override
+    @Transactional
+    public BulkMoveResponse bulkMoveFiles(BulkMoveRequest request) throws ItemNotFoundException {
+
+        AccountEntity user = getAuthenticatedAccount();
+        UUID userId = user.getId();
+
+        log.info("Starting bulk file move for user: {} - Files: {}, Destination: {}",
+                user.getUserName(), request.getFileIds().size(), request.getDestinationFolderId());
+
+        // Validate destination folder first
+        FolderEntity destinationFolder = validateDestinationFolder(request.getDestinationFolderId(), userId);
+        String destinationPath = destinationFolder != null ? destinationFolder.getFullPath() : "Root";
+
+        List<UUID> movedFileIds = new ArrayList<>();
+        List<BulkMoveResponse.FailedOperation> failures = new ArrayList<>();
+
+        // Pre-validate all file permissions
+        List<UUID> validFileIds = validateFilePermissionsForMove(request.getFileIds(), userId,
+                request.getDestinationFolderId(), failures);
+
+        log.info("Permission validation completed - Valid files: {}, Invalid files: {}",
+                validFileIds.size(), failures.size());
+
+        // Process file moves for validated files only
+        for (UUID fileId : validFileIds) {
+            try {
+                moveFileInternal(fileId, request.getDestinationFolderId(), userId);
+                movedFileIds.add(fileId);
+                log.debug("Successfully moved file: {} to {}", fileId, destinationPath);
+
+            } catch (Exception e) {
+                String fileName = getFileNameSafely(fileId);
+                failures.add(BulkMoveResponse.FailedOperation.builder()
+                        .fileId(fileId)
+                        .fileName(fileName)
+                        .reason("Move failed: " + e.getMessage())
+                        .build());
+
+                log.warn("Failed to move file {}: {}", fileId, e.getMessage());
+            }
+        }
+
+        int totalRequested = request.getFileIds().size();
+        int successfulMoves = movedFileIds.size();
+        int failedMoves = failures.size();
+
+        String summary = buildMoveSummary(successfulMoves, failedMoves, totalRequested, destinationPath);
+
+        log.info("Bulk move completed for user: {} - Success: {}, Failed: {}",
+                user.getUserName(), successfulMoves, failedMoves);
+
+        return BulkMoveResponse.builder()
+                .totalFilesRequested(totalRequested)
+                .successfulMoves(successfulMoves)
+                .failedMoves(failedMoves)
+                .movedFileIds(movedFileIds)
+                .failures(failures)
+                .summary(summary)
+                .destinationPath(destinationPath)
+                .build();
+    }
+
+
+    @Override
+    @Transactional
+    public EmptyTrashResponse emptyTrash(EmptyTrashRequest request) throws ItemNotFoundException {
+
+        AccountEntity user = getAuthenticatedAccount();
+        UUID userId = user.getId();
+
+        log.info("Starting empty trash for user: {} - Specific files: {}",
+                user.getUserName(),
+                request.getFileIds() != null ? request.getFileIds().size() : "ALL");
+
+        List<UUID> permanentlyDeletedFileIds = new ArrayList<>();
+        List<EmptyTrashResponse.FailedDeletion> failures = new ArrayList<>();
+        long totalSpaceFreed = 0L;
+
+        // Get files to permanently delete
+        List<FileEntity> filesToDelete = getFilesToPermanentlyDelete(userId, request.getFileIds());
+
+        log.info("Found {} deleted files to permanently remove for user: {}",
+                filesToDelete.size(), user.getUserName());
+
+        if (filesToDelete.isEmpty()) {
+            return EmptyTrashResponse.builder()
+                    .totalFilesProcessed(0)
+                    .successfulDeletions(0)
+                    .failedDeletions(0)
+                    .permanentlyDeletedFileIds(new ArrayList<>())
+                    .failures(new ArrayList<>())
+                    .summary("No files found in trash to delete")
+                    .totalSpaceFreed(0L)
+                    .totalSpaceFreedFormatted("0 B")
+                    .build();
+        }
+
+        // Pre-validate permissions for all files
+        List<FileEntity> validFiles = validateTrashFilePermissions(filesToDelete, userId, failures);
+
+        log.info("Permission validation completed - Valid files: {}, Invalid files: {}",
+                validFiles.size(), failures.size());
+
+        // Permanently delete validated files
+        for (FileEntity file : validFiles) {
+            try {
+                long fileSize = file.getFileSize();
+                permanentlyDeleteFileFromStorage(file, userId);
+                permanentlyDeleteFileFromDatabase(file);
+
+                permanentlyDeletedFileIds.add(file.getFileId());
+                totalSpaceFreed += fileSize;
+
+                log.debug("Permanently deleted file: {} (freed {} bytes)",
+                        file.getFileId(), fileSize);
+
+            } catch (Exception e) {
+                failures.add(EmptyTrashResponse.FailedDeletion.builder()
+                        .fileId(file.getFileId())
+                        .fileName(file.getFileName())
+                        .minioKey(file.getMinioKey())
+                        .reason("Permanent deletion failed: " + e.getMessage())
+                        .build());
+
+                log.error("Failed to permanently delete file {}: {}", file.getFileId(), e.getMessage());
+
+                // Stop processing if continueOnError is false
+                if (!request.isContinueOnError()) {
+                    log.warn("Stopping trash emptying due to error and continueOnError=false");
+                    break;
+                }
+            }
+        }
+
+        int totalProcessed = filesToDelete.size();
+        int successfulDeletions = permanentlyDeletedFileIds.size();
+        int failedDeletions = failures.size();
+
+        String summary = buildEmptyTrashSummary(successfulDeletions, failedDeletions, totalProcessed);
+        String spaceFreedFormatted = formatFileSize(totalSpaceFreed);
+
+        log.info("Empty trash completed for user: {} - Success: {}, Failed: {}, Space freed: {}",
+                user.getUserName(), successfulDeletions, failedDeletions, spaceFreedFormatted);
+
+        return EmptyTrashResponse.builder()
+                .totalFilesProcessed(totalProcessed)
+                .successfulDeletions(successfulDeletions)
+                .failedDeletions(failedDeletions)
+                .permanentlyDeletedFileIds(permanentlyDeletedFileIds)
+                .failures(failures)
+                .summary(summary)
+                .totalSpaceFreed(totalSpaceFreed)
+                .totalSpaceFreedFormatted(spaceFreedFormatted)
+                .build();
+    }
+
 
 
     private String processBatchUpload(String batchId, UUID folderId, List<MultipartFile> files, BatchUploadOptions options, UUID userId, String folderPath) throws ItemNotFoundException {
@@ -1705,5 +1978,423 @@ public class FileServiceImpl implements FileService {
         // Let database handle timestamps (createdAt, updatedAt)
 
         return newFile;
+    }
+
+    private void deleteFileInternal(UUID fileId, UUID userId) throws ItemNotFoundException {
+
+        // Get file and validate ownership
+        FileEntity file = fileRepository.findById(fileId)
+                .orElseThrow(() -> new ItemNotFoundException("File not found: " + fileId));
+
+        if (!file.getUserId().equals(userId)) {
+            throw new RuntimeException("Access denied: You don't own this file");
+        }
+
+        if (file.getIsDeleted()) {
+            throw new RuntimeException("File already deleted");
+        }
+
+        // Create unique trash key to prevent conflicts
+        String originalKey = file.getMinioKey();
+        String trashKey = "TRASH_" + UUID.randomUUID() + "_" + originalKey;
+
+        // Rename in MinIO
+        minioService.renameFile(userId, originalKey, trashKey);
+
+        // Update database
+        file.setMinioKey(trashKey);
+        file.setIsDeleted(true);
+        file.setDeletedAt(LocalDateTime.now());
+        fileRepository.save(file);
+    }
+
+    private String getFileNameSafely(UUID fileId) {
+        try {
+            return fileRepository.findById(fileId)
+                    .map(FileEntity::getFileName)
+                    .orElse("Unknown file");
+        } catch (Exception e) {
+            return "Unknown file";
+        }
+    }
+
+    private String buildDeletionSummary(int successful, int failed, int total) {
+        if (failed == 0) {
+            return String.format("Successfully moved %d file(s) to trash", successful);
+        } else if (successful == 0) {
+            return String.format("Failed to delete all %d file(s)", total);
+        } else {
+            return String.format("Moved %d file(s) to trash, %d failed", successful, failed);
+        }
+    }
+
+    private List<UUID> validateFilePermissionsForCopy(List<UUID> fileIds, UUID userId,
+                                                      List<BulkCopyResponse.FailedOperation> failures) {
+
+        List<UUID> validFileIds = new ArrayList<>();
+
+        for (UUID fileId : fileIds) {
+            try {
+                // Check if file exists and user has permission
+                if (!fileRepository.existsByFileIdAndUserId(fileId, userId)) {
+                    String fileName = getFileNameSafely(fileId);
+                    failures.add(BulkCopyResponse.FailedOperation.builder()
+                            .sourceFileId(fileId)
+                            .fileName(fileName)
+                            .reason("Access denied: You don't have permission to copy this file")
+                            .build());
+
+                    log.warn("Permission denied for copying file {} by user {}", fileId, userId);
+                    continue;
+                }
+
+                // Verify file exists and is not deleted
+                FileEntity file = fileRepository.findById(fileId).orElse(null);
+                if (file == null) {
+                    failures.add(BulkCopyResponse.FailedOperation.builder()
+                            .sourceFileId(fileId)
+                            .fileName("Unknown file")
+                            .reason("File not found")
+                            .build());
+                    continue;
+                }
+
+                if (file.getIsDeleted()) {
+                    failures.add(BulkCopyResponse.FailedOperation.builder()
+                            .sourceFileId(fileId)
+                            .fileName(file.getFileName())
+                            .reason("Cannot copy deleted file")
+                            .build());
+                    continue;
+                }
+
+                validFileIds.add(fileId);
+
+            } catch (Exception e) {
+                String fileName = getFileNameSafely(fileId);
+                failures.add(BulkCopyResponse.FailedOperation.builder()
+                        .sourceFileId(fileId)
+                        .fileName(fileName)
+                        .reason("Validation error: " + e.getMessage())
+                        .build());
+
+                log.error("Error validating file {} for copy by user {}: {}", fileId, userId, e.getMessage());
+            }
+        }
+
+        return validFileIds;
+    }
+
+    private List<UUID> validateFilePermissionsForMove(List<UUID> fileIds, UUID userId, UUID destinationFolderId,
+                                                      List<BulkMoveResponse.FailedOperation> failures) {
+
+        List<UUID> validFileIds = new ArrayList<>();
+
+        for (UUID fileId : fileIds) {
+            try {
+                // Check if file exists and user has permission
+                if (!fileRepository.existsByFileIdAndUserId(fileId, userId)) {
+                    String fileName = getFileNameSafely(fileId);
+                    failures.add(BulkMoveResponse.FailedOperation.builder()
+                            .fileId(fileId)
+                            .fileName(fileName)
+                            .reason("Access denied: You don't have permission to move this file")
+                            .build());
+
+                    log.warn("Permission denied for moving file {} by user {}", fileId, userId);
+                    continue;
+                }
+
+                // Verify file exists and is not deleted
+                FileEntity file = fileRepository.findById(fileId).orElse(null);
+                if (file == null) {
+                    failures.add(BulkMoveResponse.FailedOperation.builder()
+                            .fileId(fileId)
+                            .fileName("Unknown file")
+                            .reason("File not found")
+                            .build());
+                    continue;
+                }
+
+                if (file.getIsDeleted()) {
+                    failures.add(BulkMoveResponse.FailedOperation.builder()
+                            .fileId(fileId)
+                            .fileName(file.getFileName())
+                            .reason("Cannot move deleted file")
+                            .build());
+                    continue;
+                }
+
+                // Check if file is already in destination folder
+                if (isFileAlreadyInFolder(file, destinationFolderId)) {
+                    failures.add(BulkMoveResponse.FailedOperation.builder()
+                            .fileId(fileId)
+                            .fileName(file.getFileName())
+                            .reason("File is already in the destination folder")
+                            .build());
+                    continue;
+                }
+
+                validFileIds.add(fileId);
+
+            } catch (Exception e) {
+                String fileName = getFileNameSafely(fileId);
+                failures.add(BulkMoveResponse.FailedOperation.builder()
+                        .fileId(fileId)
+                        .fileName(fileName)
+                        .reason("Validation error: " + e.getMessage())
+                        .build());
+
+                log.error("Error validating file {} for move by user {}: {}", fileId, userId, e.getMessage());
+            }
+        }
+
+        return validFileIds;
+    }
+
+
+    private FileUploadResponse copyFileInternal(UUID fileId, UUID destinationFolderId, UUID userId) throws ItemNotFoundException {
+
+        // Get and validate source file
+        FileEntity sourceFile = fileRepository.findById(fileId)
+                .orElseThrow(() -> new ItemNotFoundException("File not found: " + fileId));
+
+        // CRITICAL: Verify user ownership/permission
+        if (!sourceFile.getUserId().equals(userId)) {
+            throw new SecurityException("Access denied: You don't have permission to copy this file");
+        }
+
+        if (sourceFile.getIsDeleted()) {
+            throw new RuntimeException("Cannot copy deleted file");
+        }
+
+        // Additional permission check for extra security
+        if (!fileRepository.existsByFileIdAndUserId(fileId, userId)) {
+            throw new SecurityException("Permission verification failed: File doesn't belong to user");
+        }
+
+        // Get and validate destination folder
+        FolderEntity destinationFolder = validateDestinationFolder(destinationFolderId, userId);
+        String destinationFolderPath = destinationFolder != null ? destinationFolder.getFullPath() : "";
+
+        // Handle name conflicts and get final filename
+        String finalFileName = handleCopyNameConflict(userId, sourceFile.getFileName(), destinationFolderId);
+
+        // Copy file in MinIO
+        String sourceMinioKey = sourceFile.getMinioKey();
+        String newMinioKey = generateNewMinioKey(destinationFolderPath, finalFileName);
+
+        minioService.copyFile(userId, sourceMinioKey, newMinioKey);
+
+        // Create new database record
+        FileEntity newFile = createFileEntityCopy(sourceFile, destinationFolder, finalFileName, newMinioKey);
+        FileEntity savedFile = fileRepository.save(newFile);
+
+        log.debug("File {} successfully copied by user {} to {}", fileId, userId, destinationFolderPath);
+
+        // Build response
+        return FileUploadResponse.builder()
+                .fileId(savedFile.getFileId())
+                .fileName(savedFile.getFileName())
+                .folderId(destinationFolderId)
+                .folderPath(destinationFolderPath)
+                .fileSize(savedFile.getFileSize())
+                .mimeType(savedFile.getMimeType())
+                .scanStatus(savedFile.getScanStatus())
+                .uploadedAt(savedFile.getCreatedAt())
+                .build();
+    }
+
+    private void moveFileInternal(UUID fileId, UUID destinationFolderId, UUID userId) throws ItemNotFoundException {
+
+        // Get and validate source file
+        FileEntity file = fileRepository.findById(fileId)
+                .orElseThrow(() -> new ItemNotFoundException("File not found: " + fileId));
+
+        // CRITICAL: Verify user ownership/permission
+        if (!file.getUserId().equals(userId)) {
+            throw new SecurityException("Access denied: You don't have permission to move this file");
+        }
+
+        if (file.getIsDeleted()) {
+            throw new RuntimeException("Cannot move deleted file");
+        }
+
+        // Additional permission check for extra security
+        if (!fileRepository.existsByFileIdAndUserId(fileId, userId)) {
+            throw new SecurityException("Permission verification failed: File doesn't belong to user");
+        }
+
+        // Get and validate destination folder
+        FolderEntity destinationFolder = validateDestinationFolder(destinationFolderId, userId);
+        String destinationFolderPath = destinationFolder != null ? destinationFolder.getFullPath() : "";
+
+        // Check if file is already in destination folder
+        if (isFileAlreadyInFolder(file, destinationFolderId)) {
+            throw new RuntimeException("File is already in the destination folder");
+        }
+
+        // Handle name conflicts and get final filename
+        String finalFileName = handleMoveNameConflict(userId, file.getFileName(), destinationFolderId);
+
+        // Move file in MinIO
+        String oldMinioKey = file.getMinioKey();
+        String newMinioKey = generateNewMinioKey(destinationFolderPath, finalFileName);
+
+        minioService.renameFile(userId, oldMinioKey, newMinioKey);
+
+        // Update database
+        file.setFolder(destinationFolder);
+        file.setFileName(finalFileName);
+        file.setMinioKey(newMinioKey);
+        fileRepository.save(file);
+
+        log.debug("File {} successfully moved by user {} to {}", fileId, userId, destinationFolderPath);
+    }
+
+    private String buildCopySummary(int successful, int failed, int total, String destinationPath) {
+        if (failed == 0) {
+            return String.format("Successfully copied %d file(s) to %s", successful, destinationPath);
+        } else if (successful == 0) {
+            return String.format("Failed to copy all %d file(s)", total);
+        } else {
+            return String.format("Copied %d file(s) to %s, %d failed", successful, destinationPath, failed);
+        }
+    }
+
+    /**
+     * Build summary message for move results
+     */
+    private String buildMoveSummary(int successful, int failed, int total, String destinationPath) {
+        if (failed == 0) {
+            return String.format("Successfully moved %d file(s) to %s", successful, destinationPath);
+        } else if (successful == 0) {
+            return String.format("Failed to move all %d file(s)", total);
+        } else {
+            return String.format("Moved %d file(s) to %s, %d failed", successful, destinationPath, failed);
+        }
+    }
+
+    private List<FileEntity> getFilesToPermanentlyDelete(UUID userId, List<UUID> specificFileIds) {
+
+        if (specificFileIds != null && !specificFileIds.isEmpty()) {
+            // Delete specific files - but only if they're already in trash
+            return specificFileIds.stream()
+                    .map(fileId -> fileRepository.findById(fileId).orElse(null))
+                    .filter(file -> file != null &&
+                            file.getUserId().equals(userId) &&
+                            file.getIsDeleted())
+                    .collect(Collectors.toList());
+        } else {
+            // Delete all trash files for user
+            return fileRepository.findByUserIdAndIsDeletedTrue(userId);
+        }
+    }
+
+    private List<FileEntity> validateTrashFilePermissions(List<FileEntity> filesToDelete, UUID userId,
+                                                          List<EmptyTrashResponse.FailedDeletion> failures) {
+
+        List<FileEntity> validFiles = new ArrayList<>();
+
+        for (FileEntity file : filesToDelete) {
+            try {
+                // CRITICAL: Verify user ownership
+                if (!file.getUserId().equals(userId)) {
+                    failures.add(EmptyTrashResponse.FailedDeletion.builder()
+                            .fileId(file.getFileId())
+                            .fileName(file.getFileName())
+                            .minioKey(file.getMinioKey())
+                            .reason("Access denied: You don't have permission to permanently delete this file")
+                            .build());
+
+                    log.warn("Permission denied for permanent deletion of file {} by user {}",
+                            file.getFileId(), userId);
+                    continue;
+                }
+
+                // Verify file is actually in trash
+                if (!file.getIsDeleted()) {
+                    failures.add(EmptyTrashResponse.FailedDeletion.builder()
+                            .fileId(file.getFileId())
+                            .fileName(file.getFileName())
+                            .minioKey(file.getMinioKey())
+                            .reason("File is not in trash - move to trash first")
+                            .build());
+                    continue;
+                }
+
+                // Additional repository-level permission check
+                if (!fileRepository.existsByFileIdAndUserId(file.getFileId(), userId)) {
+                    failures.add(EmptyTrashResponse.FailedDeletion.builder()
+                            .fileId(file.getFileId())
+                            .fileName(file.getFileName())
+                            .minioKey(file.getMinioKey())
+                            .reason("Permission verification failed")
+                            .build());
+                    continue;
+                }
+
+                validFiles.add(file);
+
+            } catch (Exception e) {
+                failures.add(EmptyTrashResponse.FailedDeletion.builder()
+                        .fileId(file.getFileId())
+                        .fileName(file.getFileName())
+                        .minioKey(file.getMinioKey())
+                        .reason("Validation error: " + e.getMessage())
+                        .build());
+
+                log.error("Error validating file {} for permanent deletion by user {}: {}",
+                        file.getFileId(), userId, e.getMessage());
+            }
+        }
+
+        return validFiles;
+    }
+    private void permanentlyDeleteFileFromStorage(FileEntity file, UUID userId) {
+
+        try {
+            // Delete from MinIO using the trash key
+            minioService.deleteFile(userId, file.getMinioKey());
+
+            log.debug("File {} permanently deleted from MinIO storage", file.getFileId());
+
+        } catch (Exception e) {
+            log.error("Failed to delete file {} from MinIO: {}", file.getFileId(), e.getMessage());
+            throw new RuntimeException("Failed to delete file from storage: " + e.getMessage(), e);
+        }
+    }
+
+    /**
+     * Permanently delete file record from database
+     */
+    private void permanentlyDeleteFileFromDatabase(FileEntity file) {
+
+        try {
+            // Hard delete from database
+            fileRepository.delete(file);
+
+            log.debug("File {} permanently deleted from database", file.getFileId());
+
+        } catch (Exception e) {
+            log.error("Failed to delete file {} from database: {}", file.getFileId(), e.getMessage());
+            throw new RuntimeException("Failed to delete file from database: " + e.getMessage(), e);
+        }
+    }
+
+    /**
+     * Build summary message for empty trash results
+     */
+    private String buildEmptyTrashSummary(int successful, int failed, int total) {
+        if (failed == 0) {
+            if (successful == 0) {
+                return "No files were found in trash to delete";
+            }
+            return String.format("Successfully permanently deleted %d file(s) from trash", successful);
+        } else if (successful == 0) {
+            return String.format("Failed to permanently delete all %d file(s)", total);
+        } else {
+            return String.format("Permanently deleted %d file(s), %d failed", successful, failed);
+        }
     }
 }

@@ -1,0 +1,116 @@
+services:
+  # PostgreSQL Database
+  postgres:
+    image: postgres:15-alpine
+    container_name: filebox-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: filebox_db
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: filebox@123
+      PGDATA: /var/lib/postgresql/data/pgdata
+    ports:
+      - "5043:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./init-scripts:/docker-entrypoint-initdb.d
+    networks:
+      - filebox-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d filebox_db"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # MinIO Object Storage
+  minio:
+    image: minio/minio:latest
+    container_name: filebox-minio
+    restart: unless-stopped
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: minioadmin
+      MINIO_ROOT_PASSWORD: minioadmin
+      MINIO_BROWSER_REDIRECT_URL: http://localhost:9001
+    ports:
+      - "9000:9000"  # API
+      - "9001:9001"  # Console
+    volumes:
+      - minio_data:/data
+    networks:
+      - filebox-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 30s
+      timeout: 20s
+      retries: 3
+
+  # ClamAV Antivirus
+  clamav:
+    image: clamav/clamav:latest
+    container_name: filebox-clamav
+    restart: unless-stopped
+    ports:
+      - "3310:3310"
+    volumes:
+      - clamav_data:/var/lib/clamav
+    networks:
+      - filebox-network
+    environment:
+      # ClamAV Configuration
+      CLAMAV_NO_FRESHCLAM: "false"
+      CLAMAV_NO_CLAMD: "false"
+      CLAMAV_NO_MILTERD: "true"
+      # Performance settings
+      CLAMD_CONF_MaxScanSize: "100M"
+      CLAMD_CONF_MaxFileSize: "50M"
+      CLAMD_CONF_MaxRecursion: "10"
+      CLAMD_CONF_MaxFiles: "1000"
+      CLAMD_CONF_MaxEmbeddedPE: "10M"
+      CLAMD_CONF_MaxHTMLNormalize: "10M"
+      CLAMD_CONF_MaxHTMLNoTags: "2M"
+      CLAMD_CONF_MaxScriptNormalize: "5M"
+      CLAMD_CONF_MaxZipTypeRcg: "1M"
+    healthcheck:
+      test: ["CMD", "clamdscan", "--ping"]
+      interval: 60s
+      timeout: 30s
+      retries: 3
+      start_period: 300s # ClamAV takes time to download virus definitions
+
+  # Redis for caching (optional but recommended)
+  redis:
+    image: redis:7-alpine
+    container_name: filebox-redis
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    networks:
+      - filebox-network
+    command: redis-server --appendonly yes --maxmemory 256mb --maxmemory-policy allkeys-lru
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+# Volumes for persistent data
+volumes:
+  postgres_data:
+    driver: local
+  minio_data:
+    driver: local
+  clamav_data:
+    driver: local
+  redis_data:
+    driver: local
+
+# Network configuration
+networks:
+  filebox-network:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.20.0.0/16
