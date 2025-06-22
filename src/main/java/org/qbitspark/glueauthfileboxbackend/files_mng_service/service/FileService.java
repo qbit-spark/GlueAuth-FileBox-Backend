@@ -53,4 +53,6 @@ public interface FileService {
     EmptyTrashResponse emptyTrash(EmptyTrashRequest request) throws ItemNotFoundException;
 
     TrashResponse getTrashFiles(Pageable pageable) throws ItemNotFoundException;
+
+    BulkRestoreResponse bulkRestoreFiles(BulkRestoreRequest request) throws ItemNotFoundException;
 }

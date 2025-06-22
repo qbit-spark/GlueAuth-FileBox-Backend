@@ -325,6 +325,63 @@ public class FileServiceImpl implements FileService {
         log.info("File restored from trash: {} ({})", file.getFileName(), user.getUserName());
     }
 
+    @Override
+    @Transactional
+    public BulkRestoreResponse bulkRestoreFiles(BulkRestoreRequest request) throws ItemNotFoundException {
+
+        AccountEntity user = getAuthenticatedAccount();
+        UUID userId = user.getId();
+
+        log.info("Starting bulk file restore for user: {} - Files: {}",
+                user.getUserName(), request.getFileIds().size());
+
+        List<UUID> restoredFileIds = new ArrayList<>();
+        List<BulkRestoreResponse.FailedRestore> failures = new ArrayList<>();
+
+        // Pre-validate all file permissions for restore
+        List<UUID> validFileIds = validateFilePermissionsForRestore(request.getFileIds(), userId, failures);
+
+        log.info("Permission validation completed - Valid files: {}, Invalid files: {}",
+                validFileIds.size(), failures.size());
+
+        // Process file restores for validated files only
+        for (UUID fileId : validFileIds) {
+            try {
+                restoreFileInternal(fileId, userId);
+                restoredFileIds.add(fileId);
+                log.debug("Successfully restored file: {}", fileId);
+
+            } catch (Exception e) {
+                String fileName = getFileNameSafely(fileId);
+                failures.add(BulkRestoreResponse.FailedRestore.builder()
+                        .fileId(fileId)
+                        .fileName(fileName)
+                        .reason("Restore failed: " + e.getMessage())
+                        .build());
+
+                log.warn("Failed to restore file {}: {}", fileId, e.getMessage());
+            }
+        }
+
+        int totalRequested = request.getFileIds().size();
+        int successfulRestores = restoredFileIds.size();
+        int failedRestores = failures.size();
+
+        String summary = buildRestoreSummary(successfulRestores, failedRestores, totalRequested);
+
+        log.info("Bulk restore completed for user: {} - Success: {}, Failed: {}",
+                user.getUserName(), successfulRestores, failedRestores);
+
+        return BulkRestoreResponse.builder()
+                .totalFilesRequested(totalRequested)
+                .successfulRestores(successfulRestores)
+                .failedRestores(failedRestores)
+                .restoredFileIds(restoredFileIds)
+                .failures(failures)
+                .summary(summary)
+                .build();
+    }
+
 
     @Override
     public SearchResponse searchItems(String query, Pageable pageable) throws ItemNotFoundException {
@@ -2517,5 +2574,120 @@ public class FileServiceImpl implements FileService {
 
         List<FileEntity> pagedFiles = trashFiles.subList(start, end);
         return new PageImpl<>(pagedFiles, pageable, trashFiles.size());
+    }
+
+    // Helper methods for bulk restore:
+
+    private List<UUID> validateFilePermissionsForRestore(List<UUID> fileIds, UUID userId,
+                                                         List<BulkRestoreResponse.FailedRestore> failures) {
+
+        List<UUID> validFileIds = new ArrayList<>();
+
+        for (UUID fileId : fileIds) {
+            try {
+                // Check if file exists and user has permission
+                if (!fileRepository.existsByFileIdAndUserId(fileId, userId)) {
+                    String fileName = getFileNameSafely(fileId);
+                    failures.add(BulkRestoreResponse.FailedRestore.builder()
+                            .fileId(fileId)
+                            .fileName(fileName)
+                            .reason("Access denied: You don't have permission to restore this file")
+                            .build());
+
+                    log.warn("Permission denied for restoring file {} by user {}", fileId, userId);
+                    continue;
+                }
+
+                // Verify file exists and is actually deleted
+                FileEntity file = fileRepository.findById(fileId).orElse(null);
+                if (file == null) {
+                    failures.add(BulkRestoreResponse.FailedRestore.builder()
+                            .fileId(fileId)
+                            .fileName("Unknown file")
+                            .reason("File not found")
+                            .build());
+                    continue;
+                }
+
+                if (!file.getIsDeleted()) {
+                    failures.add(BulkRestoreResponse.FailedRestore.builder()
+                            .fileId(fileId)
+                            .fileName(file.getFileName())
+                            .reason("File is not in trash")
+                            .build());
+                    continue;
+                }
+
+                validFileIds.add(fileId);
+
+            } catch (Exception e) {
+                String fileName = getFileNameSafely(fileId);
+                failures.add(BulkRestoreResponse.FailedRestore.builder()
+                        .fileId(fileId)
+                        .fileName(fileName)
+                        .reason("Validation error: " + e.getMessage())
+                        .build());
+
+                log.error("Error validating file {} for restore by user {}: {}", fileId, userId, e.getMessage());
+            }
+        }
+
+        return validFileIds;
+    }
+
+    private void restoreFileInternal(UUID fileId, UUID userId) throws ItemNotFoundException {
+
+        // Get deleted file and validate ownership
+        FileEntity file = fileRepository.findById(fileId)
+                .orElseThrow(() -> new ItemNotFoundException("File not found: " + fileId));
+
+        // CRITICAL: Verify user ownership
+        if (!file.getUserId().equals(userId)) {
+            throw new SecurityException("Access denied: You don't have permission to restore this file");
+        }
+
+        if (!file.getIsDeleted()) {
+            throw new RuntimeException("File is not in trash");
+        }
+
+        // Additional permission check for extra security
+        if (!fileRepository.existsByFileIdAndUserId(fileId, userId)) {
+            throw new SecurityException("Permission verification failed: File doesn't belong to user");
+        }
+
+        // Extract original key from trash key
+        String trashKey = file.getMinioKey();
+        String originalKey = extractOriginalKeyFromTrash(trashKey);
+
+        // Handle potential name conflicts in restore location
+        String finalFileName = handleRestoreNameConflict(userId, file, originalKey);
+
+        // Rename in MinIO back to original location
+        minioService.renameFile(userId, trashKey, originalKey);
+
+        // Update database
+        file.setMinioKey(originalKey);
+        file.setIsDeleted(false);
+        file.setDeletedAt(null);
+
+        // Update filename if there was a conflict
+        if (!finalFileName.equals(file.getFileName())) {
+            file.setFileName(finalFileName);
+            log.debug("File renamed during restore: {} -> {}", file.getFileName(), finalFileName);
+        }
+
+        fileRepository.save(file);
+
+        log.debug("File {} successfully restored by user {}", fileId, userId);
+    }
+
+    private String buildRestoreSummary(int successful, int failed, int total) {
+        if (failed == 0) {
+            return String.format("Successfully restored %d file(s) from trash", successful);
+        } else if (successful == 0) {
+            return String.format("Failed to restore all %d file(s)", total);
+        } else {
+            return String.format("Restored %d file(s) from trash, %d failed", successful, failed);
+        }
     }
 }

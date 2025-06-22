@@ -517,6 +517,19 @@ public class FileController {
         );
     }
 
+    @PostMapping("/bulk-restore")
+    public ResponseEntity<GlobeSuccessResponseBuilder> bulkRestoreFiles(
+            @Valid @RequestBody BulkRestoreRequest request) throws ItemNotFoundException {
+
+        log.info("Bulk restore request - Files: {}", request.getFileIds().size());
+
+        BulkRestoreResponse response = fileService.bulkRestoreFiles(request);
+
+        return ResponseEntity.ok(
+                GlobeSuccessResponseBuilder.success(response.getSummary(), response)
+        );
+    }
+
     // Private helper methods for batch monitoring
     private void monitorBatchStatus(String batchId, SseEmitter emitter) {
         long startTime = System.currentTimeMillis();
