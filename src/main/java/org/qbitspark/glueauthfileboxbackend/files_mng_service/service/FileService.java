@@ -12,7 +12,9 @@ import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 
 public interface FileService {
-    FileUploadResponse uploadFile(UUID folderId, MultipartFile file) throws ItemNotFoundException;
+    FileUploadResponse uploadFileSync(UUID folderId, MultipartFile file) throws ItemNotFoundException;
+
+    BatchUploadSyncResponse uploadFilesBatchSync(UUID folderId, List<MultipartFile> files, BatchUploadOptions options) throws ItemNotFoundException;
 
     CompletableFuture<FileUploadResponse> uploadFileAsync(UUID folderId, FileData fileData, String uploadId, UUID userId, String folderPath) throws ItemNotFoundException;
 

@@ -49,16 +49,56 @@ public class FileController {
     private final AccountRepo accountRepo;
     private final FolderRepository folderRepository;
 
-    @PostMapping("/upload")
+    @PostMapping("/upload-single-sync")
     public ResponseEntity<GlobeSuccessResponseBuilder> uploadFile(
             @RequestParam(value = "folderId", required = false) UUID folderId,
             @RequestParam("file") MultipartFile file) throws ItemNotFoundException {
 
-        FileUploadResponse response = fileService.uploadFile(folderId, file);
+        FileUploadResponse response = fileService.uploadFileSync(folderId, file);
         return ResponseEntity.ok(
                 GlobeSuccessResponseBuilder.success("File uploaded successfully", response)
         );
     }
+
+    @PostMapping("/upload-batch-sync")
+    public ResponseEntity<GlobeSuccessResponseBuilder> uploadFilesBatchSync(
+            @RequestParam(value = "folderId", required = false) UUID folderId,
+            @RequestParam("files") List<MultipartFile> files,
+            @RequestParam(value = "stopOnFirstError", defaultValue = "false") boolean stopOnFirstError,
+            @RequestParam(value = "allowDuplicates", defaultValue = "false") boolean allowDuplicates)
+            throws ItemNotFoundException {
+
+        log.info("Synchronous batch upload request - Files: {}, Folder: {}", files.size(), folderId);
+
+        // Basic validation
+        if (files == null || files.isEmpty()) {
+            throw new RuntimeException("No files provided");
+        }
+
+        if (files.size() > 50) {
+            throw new RuntimeException("Too many files. Maximum 50 files per batch.");
+        }
+
+        // Create batch upload options
+        BatchUploadOptions options = BatchUploadOptions.builder()
+                .maxConcurrentUploads(1)
+                .stopOnFirstError(stopOnFirstError)
+                .allowDuplicates(allowDuplicates)
+                .virusScanTimeout(30000)
+                .build();
+
+        // Process synchronously
+        BatchUploadSyncResponse response = fileService.uploadFilesBatchSync(folderId, files, options);
+
+        log.info("Sync batch upload completed - Success: {}, Failed: {}",
+                response.getSuccessfulUploads(), response.getFailedUploads());
+
+        return ResponseEntity.ok(
+                GlobeSuccessResponseBuilder.success(response.getSummary(), response)
+        );
+    }
+
+
 
 
     @PostMapping("/upload-async")

@@ -65,7 +65,7 @@ public class FileServiceImpl implements FileService {
 
     @Override
     @Transactional
-    public FileUploadResponse uploadFile(UUID folderId, MultipartFile file) throws ItemNotFoundException {
+    public FileUploadResponse uploadFileSync(UUID folderId, MultipartFile file) throws ItemNotFoundException {
 
         AccountEntity authenticatedUser = getAuthenticatedAccount();
         UUID userId = authenticatedUser.getId();
@@ -82,6 +82,34 @@ public class FileServiceImpl implements FileService {
         // Upload and save
         return processFileUpload(metadata, file, scanStatus);
     }
+
+    @Override
+    @Transactional
+    public BatchUploadSyncResponse uploadFilesBatchSync(UUID folderId, List<MultipartFile> files, BatchUploadOptions options) throws ItemNotFoundException {
+
+        AccountEntity user = getAuthenticatedAccount();
+        UUID userId = user.getId();
+
+        log.info("Starting synchronous batch upload for user: {} - Files: {}", user.getUserName(), files.size());
+
+        // Step 1: Validate inputs
+        validateSyncBatchInputs(files);
+
+        // Step 2: Validate and get folder info
+        FolderEntity targetFolder = validateSyncBatchFolder(folderId, userId);
+        String folderPath = targetFolder != null ? targetFolder.getFullPath() : "";
+
+        // Step 3: Initialize result collections
+        List<FileUploadResponse> uploadedFiles = new ArrayList<>();
+        List<BatchUploadSyncResponse.FailedUpload> failures = new ArrayList<>();
+
+        // Step 4: Process each file
+        processSyncBatchFiles(folderId, files, options, userId, folderPath, targetFolder, uploadedFiles, failures);
+
+        // Step 5: Build and return response
+        return buildSyncBatchResponse(files.size(), uploadedFiles, failures, user.getUserName());
+    }
+
 
     @Async("fileUploadExecutor")
     @Transactional
@@ -2690,4 +2718,193 @@ public class FileServiceImpl implements FileService {
             return String.format("Restored %d file(s) from trash, %d failed", successful, failed);
         }
     }
+
+    // Helper method 1: Input validation
+    private void validateBatchUploadInputs(List<MultipartFile> files) {
+        if (files == null || files.isEmpty()) {
+            throw new RuntimeException("No files provided");
+        }
+
+        if (files.size() > 50) {
+            throw new RuntimeException("Too many files. Maximum 50 files per batch.");
+        }
+    }
+
+    // Helper method 2: Folder validation
+    private String validateAndGetFolderPath(UUID folderId, UUID userId) throws ItemNotFoundException {
+        if (folderId == null) {
+            return ""; // Root folder
+        }
+
+        FolderEntity folder = folderRepository.findById(folderId)
+                .orElseThrow(() -> new ItemNotFoundException("Folder not found"));
+
+        if (!folder.getUserId().equals(userId)) {
+            throw new RuntimeException("Access denied: You don't own this folder");
+        }
+
+        return folder.getFullPath();
+    }
+    // Helper method 1: Validate inputs
+    private void validateSyncBatchInputs(List<MultipartFile> files) {
+        if (files == null || files.isEmpty()) {
+            throw new RuntimeException("No files provided");
+        }
+
+        if (files.size() > 50) {
+            throw new RuntimeException("Too many files. Maximum 50 files per batch.");
+        }
+
+        // Validate each file
+        for (MultipartFile file : files) {
+            if (file.isEmpty()) {
+                throw new RuntimeException("One or more files are empty");
+            }
+            if (file.getOriginalFilename() == null || file.getOriginalFilename().trim().isEmpty()) {
+                throw new RuntimeException("One or more files have invalid names");
+            }
+        }
+    }
+
+    // Helper method 2: Validate folder
+    private FolderEntity validateSyncBatchFolder(UUID folderId, UUID userId) throws ItemNotFoundException {
+        if (folderId == null) {
+            return null; // Root folder
+        }
+
+        FolderEntity folder = folderRepository.findById(folderId)
+                .orElseThrow(() -> new ItemNotFoundException("Folder not found"));
+
+        if (!folder.getUserId().equals(userId)) {
+            throw new RuntimeException("Access denied: You don't own this folder");
+        }
+
+        return folder;
+    }
+
+    // Helper method 3: Process all files
+    private void processSyncBatchFiles(UUID folderId, List<MultipartFile> files, BatchUploadOptions options,
+                                       UUID userId, String folderPath, FolderEntity targetFolder,
+                                       List<FileUploadResponse> uploadedFiles,
+                                       List<BatchUploadSyncResponse.FailedUpload> failures) {
+
+        for (MultipartFile file : files) {
+            boolean success = processSyncSingleFile(file, folderId, options, userId, folderPath,
+                    targetFolder, uploadedFiles, failures);
+
+            // Stop on first error if configured
+            if (!success && options.isStopOnFirstError()) {
+                log.info("Stopping batch upload due to error and stopOnFirstError=true");
+                break;
+            }
+        }
+    }
+
+    // Helper method 4: Process single file (self-contained upload logic)
+    private boolean processSyncSingleFile(MultipartFile file, UUID folderId, BatchUploadOptions options,
+                                          UUID userId, String folderPath, FolderEntity targetFolder,
+                                          List<FileUploadResponse> uploadedFiles,
+                                          List<BatchUploadSyncResponse.FailedUpload> failures) {
+        try {
+            String fileName = file.getOriginalFilename();
+
+            // Basic file validation
+            validateFile(file);
+
+            // Check for duplicates if not allowed
+            if (!options.isAllowDuplicates()) {
+                if (fileExistsInLocation(userId, fileName, folderId)) {
+                    failures.add(BatchUploadSyncResponse.FailedUpload.builder()
+                            .fileName(fileName)
+                            .fileSize(file.getSize())
+                            .reason("File already exists and duplicates not allowed")
+                            .build());
+                    return false;
+                }
+            }
+
+            // Handle duplicate filename by renaming
+            String finalFileName = handleDuplicateFileName(userId, fileName, folderId);
+
+            // Perform virus scan
+            VirusScanStatus scanStatus = performVirusScan(file);
+
+            // Upload to MinIO storage
+            String minioKey = minioService.uploadFile(userId, folderPath, finalFileName, file);
+            if (minioKey == null || minioKey.trim().isEmpty()) {
+                throw new RuntimeException("Storage upload failed");
+            }
+
+            // Save to database
+            FileEntity fileEntity = new FileEntity();
+            fileEntity.setFileName(finalFileName);
+            fileEntity.setUserId(userId);
+            fileEntity.setFolder(targetFolder);
+            fileEntity.setFileSize(file.getSize());
+            fileEntity.setMimeType(file.getContentType());
+            fileEntity.setScanStatus(scanStatus);
+            fileEntity.setMinioKey(minioKey);
+
+            FileEntity savedFile = fileRepository.save(fileEntity);
+
+            // Build response
+            FileUploadResponse uploadResponse = FileUploadResponse.builder()
+                    .fileId(savedFile.getFileId())
+                    .fileName(savedFile.getFileName())
+                    .folderId(folderId)
+                    .folderPath(folderPath)
+                    .fileSize(savedFile.getFileSize())
+                    .mimeType(savedFile.getMimeType())
+                    .scanStatus(savedFile.getScanStatus())
+                    .uploadedAt(savedFile.getCreatedAt())
+                    .build();
+
+            uploadedFiles.add(uploadResponse);
+            log.debug("Successfully uploaded file: {}", fileName);
+            return true;
+
+        } catch (Exception e) {
+            failures.add(BatchUploadSyncResponse.FailedUpload.builder()
+                    .fileName(file.getOriginalFilename())
+                    .fileSize(file.getSize())
+                    .reason(e.getMessage())
+                    .build());
+
+            log.warn("Failed to upload file {}: {}", file.getOriginalFilename(), e.getMessage());
+            return false;
+        }
+    }
+
+    // Helper method 5: Build response
+    private BatchUploadSyncResponse buildSyncBatchResponse(int totalRequested,
+                                                           List<FileUploadResponse> uploadedFiles,
+                                                           List<BatchUploadSyncResponse.FailedUpload> failures,
+                                                           String userName) {
+
+        int successfulUploads = uploadedFiles.size();
+        int failedUploads = failures.size();
+
+        // Build summary message
+        String summary;
+        if (failedUploads == 0) {
+            summary = String.format("Successfully uploaded %d file(s)", successfulUploads);
+        } else if (successfulUploads == 0) {
+            summary = String.format("Failed to upload all %d file(s)", totalRequested);
+        } else {
+            summary = String.format("Uploaded %d file(s), %d failed", successfulUploads, failedUploads);
+        }
+
+        log.info("Synchronous batch upload completed for user: {} - Success: {}, Failed: {}",
+                userName, successfulUploads, failedUploads);
+
+        return BatchUploadSyncResponse.builder()
+                .totalFilesRequested(totalRequested)
+                .successfulUploads(successfulUploads)
+                .failedUploads(failedUploads)
+                .uploadedFiles(uploadedFiles)
+                .failures(failures)
+                .summary(summary)
+                .build();
+    }
+
 }
