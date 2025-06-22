@@ -50,7 +50,7 @@ public class FileController {
     private final FolderRepository folderRepository;
 
     @PostMapping("/upload-single-sync")
-    public ResponseEntity<GlobeSuccessResponseBuilder> uploadFile(
+    public ResponseEntity<GlobeSuccessResponseBuilder> uploadSingleFileSync(
             @RequestParam(value = "folderId", required = false) UUID folderId,
             @RequestParam("file") MultipartFile file) throws ItemNotFoundException {
 
@@ -101,8 +101,8 @@ public class FileController {
 
 
 
-    @PostMapping("/upload-async")
-    public ResponseEntity<GlobeSuccessResponseBuilder> uploadFileAsync(
+    @PostMapping("/upload-single-async")
+    public ResponseEntity<GlobeSuccessResponseBuilder> uploadSingleFileAsync(
             @RequestParam(value = "folderId", required = false) UUID folderId,
             @RequestParam("file") MultipartFile file) throws RandomExceptions {
 
@@ -187,8 +187,8 @@ public class FileController {
     /**
      * Batch uploads multiple files with individual tracking
      */
-    @PostMapping("/upload-batch")
-    public ResponseEntity<GlobeSuccessResponseBuilder> uploadFilesBatch(
+    @PostMapping("/upload-batch-async")
+    public ResponseEntity<GlobeSuccessResponseBuilder> uploadFilesBatchAsync(
             @RequestParam(value = "folderId", required = false) UUID folderId,
             @RequestParam("files") List<MultipartFile> files,
             @RequestParam(value = "maxConcurrentUploads", defaultValue = "3") int maxConcurrentUploads,
