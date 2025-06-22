@@ -51,4 +51,6 @@ public interface FileService {
     BulkMoveResponse bulkMoveFiles(BulkMoveRequest request) throws ItemNotFoundException;
 
     EmptyTrashResponse emptyTrash(EmptyTrashRequest request) throws ItemNotFoundException;
+
+    TrashResponse getTrashFiles(Pageable pageable) throws ItemNotFoundException;
 }

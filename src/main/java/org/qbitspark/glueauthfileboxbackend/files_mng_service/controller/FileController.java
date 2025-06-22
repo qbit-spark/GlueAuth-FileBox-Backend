@@ -494,6 +494,29 @@ public class FileController {
         );
     }
 
+
+    @GetMapping("/trash")
+    public ResponseEntity<GlobeSuccessResponseBuilder> getTrashFiles(
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "20") int size) throws ItemNotFoundException {
+
+        log.info("Getting trash files (page: {}, size: {})", page, size);
+
+        // Limit page size for performance
+        int limitedSize = Math.min(size, 100);
+        Pageable pageable = PageRequest.of(page, limitedSize);
+
+        TrashResponse response = fileService.getTrashFiles(pageable);
+
+        log.info("Retrieved trash files - Total: {}, Current page: {} files",
+                response.getSummary().getTotalTrashFiles(),
+                response.getFiles().size());
+
+        return ResponseEntity.ok(
+                GlobeSuccessResponseBuilder.success("Trash files retrieved successfully", response)
+        );
+    }
+
     // Private helper methods for batch monitoring
     private void monitorBatchStatus(String batchId, SseEmitter emitter) {
         long startTime = System.currentTimeMillis();

@@ -798,6 +798,50 @@ public class FileServiceImpl implements FileService {
     }
 
 
+    @Override
+    @Transactional(readOnly = true)
+    public TrashResponse getTrashFiles(Pageable pageable) throws ItemNotFoundException {
+
+        AccountEntity user = getAuthenticatedAccount();
+        UUID userId = user.getId();
+
+        log.info("Getting trash files for user: {} (page: {}, size: {})",
+                user.getUserName(), pageable.getPageNumber(), pageable.getPageSize());
+
+        // Get all deleted files for user
+        List<FileEntity> allTrashFiles = fileRepository.findByUserIdAndIsDeletedTrue(userId);
+
+        // Sort by deletion date (newest first)
+        allTrashFiles.sort((a, b) -> {
+            LocalDateTime dateA = a.getDeletedAt() != null ? a.getDeletedAt() : a.getUpdatedAt();
+            LocalDateTime dateB = b.getDeletedAt() != null ? b.getDeletedAt() : b.getUpdatedAt();
+            return dateB.compareTo(dateA);
+        });
+
+        // Apply pagination
+        Page<FileEntity> pagedTrashFiles = applyPaginationToTrashFiles(allTrashFiles, pageable);
+
+        // Convert to response items
+        List<TrashResponse.TrashFileItem> trashItems = pagedTrashFiles.getContent().stream()
+                .map(this::convertToTrashFileItem)
+                .toList();
+
+        // Build summary
+        TrashResponse.TrashSummary summary = buildTrashSummary(allTrashFiles);
+
+        // Build pagination info
+        TrashResponse.PaginationInfo paginationInfo = buildTrashPaginationInfo(pagedTrashFiles);
+
+        log.info("Retrieved {} trash files for user: {} (total in trash: {})",
+                trashItems.size(), user.getUserName(), allTrashFiles.size());
+
+        return TrashResponse.builder()
+                .summary(summary)
+                .files(trashItems)
+                .pagination(paginationInfo)
+                .build();
+    }
+
 
     private String processBatchUpload(String batchId, UUID folderId, List<MultipartFile> files, BatchUploadOptions options, UUID userId, String folderPath) throws ItemNotFoundException {
 
@@ -2396,5 +2440,82 @@ public class FileServiceImpl implements FileService {
         } else {
             return String.format("Permanently deleted %d file(s), %d failed", successful, failed);
         }
+    }
+
+
+    private TrashResponse.TrashFileItem convertToTrashFileItem(FileEntity file) {
+        // Get original folder path (before deletion)
+        String originalFolderPath = "Root"; // Default
+        if (file.getFolder() != null) {
+            originalFolderPath = file.getFolder().getFullPath();
+        }
+
+        return TrashResponse.TrashFileItem.builder()
+                .id(file.getFileId())
+                .name(file.getFileName())
+                .size(file.getFileSize())
+                .sizeFormatted(formatFileSize(file.getFileSize()))
+                .mimeType(file.getMimeType())
+                .extension(getFileExtension(file.getFileName()))
+                .category(getFileCategory(file.getMimeType()))
+                .scanStatus(file.getScanStatus().toString())
+                .originalFolderPath(originalFolderPath)
+                .deletedAt(file.getDeletedAt())
+                .originalCreatedAt(file.getCreatedAt())
+                .canRestore(true) // All files in trash can be restored
+                .build();
+    }
+
+    private TrashResponse.TrashSummary buildTrashSummary(List<FileEntity> trashFiles) {
+        if (trashFiles.isEmpty()) {
+            return TrashResponse.TrashSummary.builder()
+                    .totalTrashFiles(0)
+                    .totalTrashSize(0L)
+                    .totalTrashSizeFormatted("0 B")
+                    .oldestDeletedAt(null)
+                    .newestDeletedAt(null)
+                    .build();
+        }
+
+        long totalSize = trashFiles.stream().mapToLong(FileEntity::getFileSize).sum();
+
+        LocalDateTime oldest = trashFiles.stream()
+                .map(file -> file.getDeletedAt() != null ? file.getDeletedAt() : file.getUpdatedAt())
+                .min(LocalDateTime::compareTo)
+                .orElse(null);
+
+        LocalDateTime newest = trashFiles.stream()
+                .map(file -> file.getDeletedAt() != null ? file.getDeletedAt() : file.getUpdatedAt())
+                .max(LocalDateTime::compareTo)
+                .orElse(null);
+
+        return TrashResponse.TrashSummary.builder()
+                .totalTrashFiles(trashFiles.size())
+                .totalTrashSize(totalSize)
+                .totalTrashSizeFormatted(formatFileSize(totalSize))
+                .oldestDeletedAt(oldest)
+                .newestDeletedAt(newest)
+                .build();
+    }
+
+    private TrashResponse.PaginationInfo buildTrashPaginationInfo(Page<FileEntity> page) {
+        return TrashResponse.PaginationInfo.builder()
+                .page(page.getNumber())
+                .size(page.getSize())
+                .totalElements(page.getTotalElements())
+                .totalPages(page.getTotalPages())
+                .hasNext(page.hasNext())
+                .hasPrevious(page.hasPrevious())
+                .isFirst(page.isFirst())
+                .isLast(page.isLast())
+                .build();
+    }
+
+    private Page<FileEntity> applyPaginationToTrashFiles(List<FileEntity> trashFiles, Pageable pageable) {
+        int start = (int) pageable.getOffset();
+        int end = Math.min(start + pageable.getPageSize(), trashFiles.size());
+
+        List<FileEntity> pagedFiles = trashFiles.subList(start, end);
+        return new PageImpl<>(pagedFiles, pageable, trashFiles.size());
     }
 }
