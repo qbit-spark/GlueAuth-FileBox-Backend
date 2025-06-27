@@ -1,0 +1,1401 @@
+type: collection.insomnia.rest/5.0
+name: GlueAuth FileBox
+meta:
+  id: wrk_151230a8a95549f8b38b699caf308f74
+  created: 1750227281542
+  modified: 1750227281542
+  description: ""
+collection:
+  - name: ACCOUNT MANAGEMENT
+    meta:
+      id: fld_9d79af0f134046fb86419b92402a0001
+      created: 1750227303898
+      modified: 1750227303898
+      sortKey: -1000000000
+      description: ""
+    children:
+      - name: VERIFICATION
+        meta:
+          id: fld_825f6f20d1a04ee29d9135bd6ab4bf80
+          created: 1750227303899
+          modified: 1750227303899
+          sortKey: -1727542542547
+          description: ""
+        children:
+          - url: "{{ _.BASE_URL }}{{ _.PATH }}verify-otp"
+            name: VALIDATE OTP
+            meta:
+              id: req_f0a5dd0dd3664191b3c7dca9ccc4c073
+              created: 1750227303901
+              modified: 1750839593976
+              isPrivate: false
+              description: ""
+              sortKey: -1707318807023
+            method: POST
+            body:
+              mimeType: application/json
+              text: |-
+                {
+                	"email": "office@qbitspark.com",
+                	"code":"974838"
+                }
+            headers:
+              - name: Content-Type
+                value: application/json
+              - name: User-Agent
+                value: insomnia/8.6.1
+            scripts:
+              preRequest: ""
+              afterResponse: ""
+            settings:
+              renderRequestBody: true
+              encodeUrl: true
+              followRedirects: global
+              cookies:
+                send: true
+                store: true
+              rebuildPath: true
+          - url: "{{ _.BASE_URL }}{{ _.PATH }}request-otp"
+            name: SEND OTP
+            meta:
+              id: req_7b33eb13d17b4d1396066cae41b56d46
+              created: 1750227303902
+              modified: 1750227303902
+              isPrivate: false
+              description: ""
+              sortKey: -1707804315344
+            method: POST
+            body:
+              mimeType: application/json
+              text: |-
+                {
+                	"email":"joshuasimon656@gmail.com"
+                }
+            headers:
+              - name: Content-Type
+                value: application/json
+              - name: User-Agent
+                value: insomnia/8.6.1
+            scripts:
+              preRequest: ""
+              afterResponse: ""
+            settings:
+              renderRequestBody: true
+              encodeUrl: true
+              followRedirects: global
+              cookies:
+                send: true
+                store: true
+              rebuildPath: true
+        scripts:
+          afterResponse: ""
+          preRequest: ""
+      - name: PASSWORD-RESET
+        meta:
+          id: fld_8f7f8709ed884c6cb3b85a3c387dde15
+          created: 1750227303903
+          modified: 1750227303903
+          sortKey: -1727542542497
+          description: ""
+        children:
+          - url: "{{ _.BASE_URL }}{{ _.PATH }}verify-otp-and-reset"
+            name: Verfy-otp-and-reset-newpassword
+            meta:
+              id: req_ae2e03a09e1e43e09249c784b0bbc46d
+              created: 1750227303903
+              modified: 1750227303903
+              isPrivate: false
+              description: ""
+              sortKey: -1707318807023
+            method: POST
+            body:
+              mimeType: application/json
+              text: |-
+                {
+                	"email":"joshuasimon656@gmail.com",
+                	"code":"370008",
+                	"newPassword":"Passwords@656"
+                }
+            headers:
+              - name: Content-Type
+                value: application/json
+              - name: User-Agent
+                value: insomnia/8.6.1
+            scripts:
+              preRequest: ""
+              afterResponse: ""
+            settings:
+              renderRequestBody: true
+              encodeUrl: true
+              followRedirects: global
+              cookies:
+                send: true
+                store: true
+              rebuildPath: true
+          - url: "{{ _.BASE_URL }}{{ _.PATH }}psw-request-otp"
+            name: Request-otp-reset-pasword
+            meta:
+              id: req_7e22b22fef004fd080130adc8941b7d0
+              created: 1750227303904
+              modified: 1750227303904
+              isPrivate: false
+              description: ""
+              sortKey: -1707804315344
+            method: POST
+            body:
+              mimeType: application/json
+              text: |-
+                {
+                	"email":"joshuasimon656@gmail.com"
+                }
+            headers:
+              - name: Content-Type
+                value: application/json
+              - name: User-Agent
+                value: insomnia/8.6.1
+            scripts:
+              preRequest: ""
+              afterResponse: ""
+            settings:
+              renderRequestBody: true
+              encodeUrl: true
+              followRedirects: global
+              cookies:
+                send: true
+                store: true
+              rebuildPath: true
+        scripts:
+          afterResponse: ""
+          preRequest: ""
+      - url: "{{ _.BASE_URL }}{{ _.PATH }}register"
+        name: ACCOUNT REGISTRATION
+        meta:
+          id: req_bb3fc71e2e634025a8d7ea54b08a4977
+          created: 1750227303905
+          modified: 1750839491931
+          isPrivate: false
+          description: ""
+          sortKey: -1707288547864
+        method: POST
+        body:
+          mimeType: application/json
+          text: |-
+            {
+            	"phoneNumber": "+255745051250",
+            	"password": "Password@123",
+            	"email": "office@qbitspark.com",
+            	"verificationChannel":"EMAIL"
+            }
+        headers:
+          - name: Content-Type
+            value: application/json
+          - name: User-Agent
+            value: insomnia/8.6.1
+        scripts:
+          preRequest: ""
+          afterResponse: ""
+        settings:
+          renderRequestBody: true
+          encodeUrl: true
+          followRedirects: global
+          cookies:
+            send: true
+            store: true
+          rebuildPath: true
+      - url: "{{ _.BASE_URL }}{{ _.PATH }}login"
+        name: ACCOUNT LOGIN
+        meta:
+          id: req_a2815360c8dc420dba8224798d7eb886
+          created: 1750227303906
+          modified: 1750227303906
+          isPrivate: false
+          description: ""
+          sortKey: -1707303475313
+        method: POST
+        body:
+          mimeType: application/json
+          text: |-
+            {
+            "password":"Password@123",
+            "phoneEmailOrUserName":"joshuasimon656@gmail.com"
+
+            }
+        headers:
+          - name: Content-Type
+            value: application/json
+          - name: User-Agent
+            value: insomnia/8.6.1
+        authentication:
+          type: none
+        scripts:
+          preRequest: ""
+          afterResponse: ""
+        settings:
+          renderRequestBody: true
+          encodeUrl: true
+          followRedirects: global
+          cookies:
+            send: true
+            store: true
+          rebuildPath: true
+      - url: "{{ _.BASE_URL_LIVE }}{{ _.PATH }}all-users"
+        name: LIST ALL ACCOUNT
+        meta:
+          id: req_7a0654cde9674a54a2cfa8d1e46b9ba5
+          created: 1750227303908
+          modified: 1750227303908
+          isPrivate: false
+          description: ""
+          sortKey: -1707288547764
+        method: GET
+        headers:
+          - name: User-Agent
+            value: insomnia/8.6.1
+        authentication:
+          type: none
+        scripts:
+          preRequest: ""
+          afterResponse: ""
+        settings:
+          renderRequestBody: true
+          encodeUrl: true
+          followRedirects: global
+          cookies:
+            send: true
+            store: true
+          rebuildPath: true
+      - url: "{{ _.BASE_URL }}{{ _.PATH }}refreshToken"
+        name: REFRESH-TOKEN
+        meta:
+          id: req_2d68761128234d2b8c5c4ed4e7c38853
+          created: 1750227303909
+          modified: 1750227303909
+          isPrivate: false
+          description: ""
+          sortKey: -1707296011588.5
+        method: POST
+        body:
+          mimeType: application/json
+          text: |-
+            {
+            "refreshToken":"eyJhbGciOiJIUzM4NCJ9.eyJzdWIiOiJraWJ1dGkyNTUiLCJpYXQiOjE3NDgzNDIxOTgsImV4cCI6MTc0ODk0Njk5OCwidG9rZW5UeXBlIjoiQUNDRVNTIn0.NbCHuMHpHMFgco-PSGmMayJ0v3u1GamIKaC6YM7O8TBXtBAj-8M7chMLuLDJY-qy"
+            }
+        headers:
+          - name: Content-Type
+            value: application/json
+          - name: User-Agent
+            value: insomnia/8.6.1
+        authentication:
+          type: none
+        scripts:
+          preRequest: ""
+          afterResponse: ""
+        settings:
+          renderRequestBody: true
+          encodeUrl: true
+          followRedirects: global
+          cookies:
+            send: true
+            store: true
+          rebuildPath: true
+    scripts:
+      afterResponse: ""
+      preRequest: ""
+    environment:
+      PATH: auth/
+    environmentPropertyOrder:
+      "&":
+        - PATH
+  - name: API-KEY-MNG
+    meta:
+      id: fld_09974f05fa6245be95b768d324eed861
+      created: 1750245233526
+      modified: 1750245750032
+      sortKey: -1000000100
+      description: ""
+    children:
+      - url: "{{ _.BASE_URL }}api-key/generate"
+        name: Generate token
+        meta:
+          id: req_7908708ce0d4479084078941e899e045
+          created: 1750245305660
+          modified: 1750254235322
+          isPrivate: false
+          description: ""
+          sortKey: -1750245305660
+        method: POST
+        body:
+          mimeType: application/json
+          text: >-
+            {
+              "name": "Admin Dashboard",
+              "permissions": ["FILES_READ", "FILES_WRITE", "FILES_DELETE", "FOLDERS_READ", "FOLDERS_WRITE", "FOLDERS_DELETE"],
+              "environment": "PRODUCTION",
+              "description": "Full access API key for admin operations"
+            }
+        headers:
+          - name: Content-Type
+            value: application/json
+          - name: User-Agent
+            value: insomnia/11.2.0
+        settings:
+          renderRequestBody: true
+          encodeUrl: true
+          followRedirects: global
+          cookies:
+            send: true
+            store: true
+          rebuildPath: true
+      - url: "{{ _.BASE_URL }}api-key/my-keys"
+        name: My keys
+        meta:
+          id: req_58b53ee585e04892a956d6a04e539454
+          created: 1750254569100
+          modified: 1750255105038
+          isPrivate: false
+          description: ""
+          sortKey: -1750131887392
+        method: GET
+        body:
+          mimeType: application/json
+          text: >-
+            {
+              "name": "Admin Dashboard",
+              "permissions": ["FILES_READ", "FILES_WRITE", "FILES_DELETE", "FOLDERS_READ", "FOLDERS_WRITE", "FOLDERS_DELETE"],
+              "environment": "PRODUCTION",
+              "description": "Full access API key for admin operations"
+            }
+        headers:
+          - name: Content-Type
+            value: application/json
+          - name: User-Agent
+            value: insomnia/11.2.0
+        settings:
+          renderRequestBody: true
+          encodeUrl: true
+          followRedirects: global
+          cookies:
+            send: true
+            store: true
+          rebuildPath: true
+      - url: "{{ _.BASE_URL }}api-key/0a27cb9f-3731-4b9c-8e95-7297c0659b58"
+        name: Get key byId
+        meta:
+          id: req_18dcb7fa0a6147088a7d32e90dc2a8be
+          created: 1750255038880
+          modified: 1750255119613
+          isPrivate: false
+          description: ""
+          sortKey: -1750075178258
+        method: GET
+        headers:
+          - name: User-Agent
+            value: insomnia/11.2.0
+        settings:
+          renderRequestBody: true
+          encodeUrl: true
+          followRedirects: global
+          cookies:
+            send: true
+            store: true
+          rebuildPath: true
+    authentication:
+      type: bearer
+      token: "{{ _.ACCESS_TOKEN }}"
+  - name: FILE-MNG
+    meta:
+      id: fld_1166002a345e46b48408c833cb3e3da8
+      created: 1750328703367
+      modified: 1750328826097
+      sortKey: -1750328703367
+      description: ""
+    children:
+      - name: File
+        meta:
+          id: fld_f43eb73bedce4940900e2fcdec8dcb52
+          created: 1750331308457
+          modified: 1750519826805
+          sortKey: -1750331308457
+          description: ""
+        children:
+          - url: "{{ _.BASE_URL }}files/upload"
+            name: Upload single sync
+            meta:
+              id: req_7516f272be744e2c8e8982ac0fbdb3fa
+              created: 1750331343284
+              modified: 1750626148090
+              isPrivate: false
+              description: ""
+              sortKey: -1750331343284
+            method: POST
+            body:
+              mimeType: multipart/form-data
+              params:
+                - id: pair_f4d81b2818e9497ea9eaf866453f289a
+                  name: file
+                  value: ""
+                  description: ""
+                  disabled: false
+                  type: file
+                  fileName: /home/qbit-spark/Pictures/Screenshots/Screenshot from 2025-06-12
+                    23-33-41.png
+                - id: pair_719dda50dfba4cd6b07522077c72ae50
+                  name: folderId
+                  value: b9881672-999c-4c12-9c5e-249ef6ce3cb1
+                  description: ""
+                  disabled: false
+            headers:
+              - name: Content-Type
+                value: multipart/form-data
+              - name: User-Agent
+                value: insomnia/11.2.0
+            settings:
+              renderRequestBody: true
+              encodeUrl: true
+              followRedirects: global
+              cookies:
+                send: true
+                store: true
+              rebuildPath: true
+          - url: "{{ _.BASE_URL }}files/upload-status/7a9068f8-16a4-4da5-8ad0-719da33b5f25"
+            name: Status Upload
+            meta:
+              id: req_d4edd2d6c3eb4d71a6ae5d1e51726f95
+              created: 1750347736654
+              modified: 1750350038494
+              isPrivate: false
+              description: ""
+              sortKey: -1750331336365
+            method: GET
+            headers:
+              - name: User-Agent
+                value: insomnia/11.2.0
+            settings:
+              renderRequestBody: true
+              encodeUrl: true
+              followRedirects: global
+              cookies:
+                send: true
+                store: true
+              rebuildPath: true
+          - url: "{{ _.BASE_URL }}files/upload-async"
+            name: Upload Single file Async
+            meta:
+              id: req_354c783cdc6f4b5098aed1857b693690
+              created: 1750347961019
+              modified: 1750626186637
+              isPrivate: false
+              description: ""
+              sortKey: -1750331339824.5
+            method: POST
+            body:
+              mimeType: multipart/form-data
+              params:
+                - id: pair_f4d81b2818e9497ea9eaf866453f289a
+                  name: file
+                  value: ""
+                  description: ""
+                  disabled: false
+                  type: file
+                  fileName: /home/qbit-spark/Downloads/MUST-EMPLOYMENT OPPORTUNITIES.pdf
+                - id: pair_719dda50dfba4cd6b07522077c72ae50
+                  name: folderId
+                  value: 6108caba-5fb4-4077-b886-283b5a8d1626
+                  description: ""
+                  disabled: false
+            headers:
+              - name: Content-Type
+                value: multipart/form-data
+              - name: User-Agent
+                value: insomnia/11.2.0
+            settings:
+              renderRequestBody: true
+              encodeUrl: true
+              followRedirects: global
+              cookies:
+                send: true
+                store: true
+              rebuildPath: true
+          - url: "{{ _.BASE_URL }}files/upload-batch"
+            name: Upload Batch files Async
+            meta:
+              id: req_31b4831310f345b5b6edc74f8c692528
+              created: 1750401732331
+              modified: 1750626135693
+              isPrivate: false
+              description: ""
+              sortKey: -1750331338094.75
+            method: POST
+            body:
+              mimeType: multipart/form-data
+              params:
+                - id: pair_f4d81b2818e9497ea9eaf866453f289a
+                  name: files
+                  value: ""
+                  description: ""
+                  disabled: false
+                  type: file
+                  fileName: /home/qbit-spark/Downloads/Insomnia_2025-06-09.yaml
+                - id: pair_719dda50dfba4cd6b07522077c72ae50
+                  name: folderId
+                  value: 0eda5106-a160-4ead-bc43-3aa65f00304f
+                  description: ""
+                  disabled: false
+                - id: pair_59a5441f2b574ba9aeef84515254713f
+                  name: files
+                  value: ""
+                  description: ""
+                  disabled: false
+                  type: file
+                  fileName: /home/qbit-spark/Pictures/Screenshots/Screenshot from 2025-06-13
+                    13-11-41.png
+                - id: pair_3ba1b9c2c28a407a8982b55e3359c169
+                  name: files
+                  value: ""
+                  description: ""
+                  disabled: false
+                  type: file
+                  fileName: /home/qbit-spark/Pictures/Screenshots/Screenshot from 2025-06-19
+                    17-26-21.png
+            headers:
+              - name: Content-Type
+                value: multipart/form-data
+              - name: User-Agent
+                value: insomnia/11.2.0
+            settings:
+              renderRequestBody: true
+              encodeUrl: true
+              followRedirects: global
+              cookies:
+                send: true
+                store: true
+              rebuildPath: true
+          - url: "{{ _.BASE_URL }}files/batch-status/4707bcc3-deec-4fe8-94af-4f9ad3bfaac7"
+            name: Status Batch-Upload
+            meta:
+              id: req_1c9ed5ce1d544246b58013bbabc6c5ce
+              created: 1750403406767
+              modified: 1750404021249
+              isPrivate: false
+              description: ""
+              sortKey: -1750331332905.5
+            method: GET
+            headers:
+              - name: User-Agent
+                value: insomnia/11.2.0
+            settings:
+              renderRequestBody: true
+              encodeUrl: true
+              followRedirects: global
+              cookies:
+                send: true
+                store: true
+              rebuildPath: true
+          - url: "{{ _.BASE_URL }}files/efc8aaae-797e-4d66-8775-80cc12a05525"
+            name: Get file details
+            meta:
+              id: req_3863196258594b90aa2e7eca5b4d3664
+              created: 1750499849046
+              modified: 1750514195265
+              isPrivate: false
+              description: ""
+              sortKey: -1750499849046
+            method: GET
+            headers:
+              - name: User-Agent
+                value: insomnia/11.2.0
+            settings:
+              renderRequestBody: true
+              encodeUrl: true
+              followRedirects: global
+              cookies:
+                send: true
+                store: true
+              rebuildPath: true
+          - url: "{{ _.BASE_URL }}files/dfb37090-a876-4185-9116-6f12f4053588/download"
+            name: Downlaod  file
+            meta:
+              id: req_4b9f3222b38a4e2db56e0d90208752a2
+              created: 1750500982470
+              modified: 1750501235044
+              isPrivate: false
+              description: ""
+              sortKey: -1750415596165
+            method: GET
+            headers:
+              - name: User-Agent
+                value: insomnia/11.2.0
+            settings:
+              renderRequestBody: true
+              encodeUrl: true
+              followRedirects: global
+              cookies:
+                send: true
+                store: true
+              rebuildPath: true
+          - url: "{{ _.BASE_URL }}files/10dc1fce-9f1d-4055-aa81-77f84dca36b9/preview"
+            name: Preview  file
+            meta:
+              id: req_cbf7d14764e0494e927611403967a9d0
+              created: 1750501505461
+              modified: 1750522303135
+              isPrivate: false
+              description: ""
+              sortKey: -1750373469724.5
+            method: GET
+            headers:
+              - name: User-Agent
+                value: insomnia/11.2.0
+            settings:
+              renderRequestBody: true
+              encodeUrl: true
+              followRedirects: global
+              cookies:
+                send: true
+                store: true
+              rebuildPath: true
+          - url: "{{ _.BASE_URL }}files/9ba8c285-94c7-474f-8f01-d14a3dab8107/trash"
+            name: Trash the file
+            meta:
+              id: req_95673334b2694606ba0c509e50b69f2c
+              created: 1750513428792
+              modified: 1750618598282
+              isPrivate: false
+              description: ""
+              sortKey: -1750457722605.5
+            method: POST
+            headers:
+              - name: User-Agent
+                value: insomnia/11.2.0
+            settings:
+              renderRequestBody: true
+              encodeUrl: true
+              followRedirects: global
+              cookies:
+                send: true
+                store: true
+              rebuildPath: true
+          - url: "{{ _.BASE_URL }}files/efc8aaae-797e-4d66-8775-80cc12a05525/restore"
+            name: Restore  the file  from trash
+            meta:
+              id: req_ccbf15a5dc1a4fbba224f9ea1b154cae
+              created: 1750514081469
+              modified: 1750621609344
+              isPrivate: false
+              description: ""
+              sortKey: -1750436659385.25
+            method: POST
+            headers:
+              - name: User-Agent
+                value: insomnia/11.2.0
+            settings:
+              renderRequestBody: true
+              encodeUrl: true
+              followRedirects: global
+              cookies:
+                send: true
+                store: true
+              rebuildPath: true
+          - url: "{{ _.BASE_URL }}files/efc8aaae-797e-4d66-8775-80cc12a05525/move"
+            name: Move  the file (To root and ther folders)
+            meta:
+              id: req_b6def0fe37bb4c208e55716a5f96e411
+              created: 1750519023291
+              modified: 1750519666871
+              isPrivate: false
+              description: If u destination is null it move to root
+              sortKey: -1750447190995.375
+            method: POST
+            body:
+              mimeType: application/json
+              text: |-
+                {
+                  "destinationFolderId": "5210c2ea-584f-4c6e-9c0d-967187606493" 
+                }
+            headers:
+              - name: Content-Type
+                value: application/json
+              - name: User-Agent
+                value: insomnia/11.2.0
+            settings:
+              renderRequestBody: true
+              encodeUrl: true
+              followRedirects: global
+              cookies:
+                send: true
+                store: true
+              rebuildPath: true
+          - url: "{{ _.BASE_URL }}files/efc8aaae-797e-4d66-8775-80cc12a05525/copy"
+            name: Copy  the file (To root and ther folders)
+            meta:
+              id: req_334d800e23fd40f7b86a6fd2ac2b45ce
+              created: 1750519917231
+              modified: 1750520298285
+              isPrivate: false
+              description: If u destination is null it move to root
+              sortKey: -1750444558092.8438
+            method: POST
+            body:
+              mimeType: application/json
+              text: |-
+                {
+                  "destinationFolderId": "5210c2ea-584f-4c6e-9c0d-967187606493" 
+                }
+            headers:
+              - name: Content-Type
+                value: application/json
+              - name: User-Agent
+                value: insomnia/11.2.0
+            settings:
+              renderRequestBody: true
+              encodeUrl: true
+              followRedirects: global
+              cookies:
+                send: true
+                store: true
+              rebuildPath: true
+          - url: "{{ _.BASE_URL }}files/trash?page=0&size=20"
+            name: View trash
+            meta:
+              id: req_222af41668c64e2fa6492edd90258521
+              created: 1750621101965
+              modified: 1750621127668
+              isPrivate: false
+              description: ""
+              sortKey: -1750621101965
+            method: GET
+            headers:
+              - name: User-Agent
+                value: insomnia/11.2.0
+            settings:
+              renderRequestBody: true
+              encodeUrl: true
+              followRedirects: global
+              cookies:
+                send: true
+                store: true
+              rebuildPath: true
+          - url: "{{ _.BASE_URL }}files/bulk-trash"
+            name: Trash in Bulk
+            meta:
+              id: req_e6e2f2733ecf4f6ebc0a537f7574d154
+              created: 1750621244872
+              modified: 1750623036708
+              isPrivate: false
+              description: ""
+              sortKey: -1750621244872
+            method: POST
+            body:
+              mimeType: application/json
+              text: |-
+                {
+                	"fileIds":[
+                		"35c5f1bc-a87d-40d8-af01-13caf9488093",
+                		"7a626eab-2bb2-46af-95b1-407f99eb7431",
+                		"9b795bbc-3531-438a-908f-b7d8590d73d4"
+                	]
+                }
+            headers:
+              - name: Content-Type
+                value: application/json
+              - name: User-Agent
+                value: insomnia/11.2.0
+            settings:
+              renderRequestBody: true
+              encodeUrl: true
+              followRedirects: global
+              cookies:
+                send: true
+                store: true
+              rebuildPath: true
+          - url: "{{ _.BASE_URL }}files/bulk-restore"
+            name: Bulk trash restore
+            meta:
+              id: req_9cdf8fffbb9c4ec1b5c9426a4a3c4465
+              created: 1750621966824
+              modified: 1750623132174
+              isPrivate: false
+              description: ""
+              sortKey: -1750621966824
+            method: POST
+            body:
+              mimeType: application/json
+              text: |-
+                {
+                  "fileIds": [
+                    "35c5f1bc-a87d-40d8-af01-13caf9488093",
+                    "7a626eab-2bb2-46af-95b1-407f99eb7431",
+                		"9b795bbc-3531-438a-908f-b7d8590d73d4"
+                  ]
+                }
+            headers:
+              - name: Content-Type
+                value: application/json
+              - name: User-Agent
+                value: insomnia/11.2.0
+            settings:
+              renderRequestBody: true
+              encodeUrl: true
+              followRedirects: global
+              cookies:
+                send: true
+                store: true
+              rebuildPath: true
+          - url: "{{ _.BASE_URL }}files/empty-trash"
+            name: Empty trash
+            meta:
+              id: req_8b05ea05a560453e8568b0c66b68dfbd
+              created: 1750622342966
+              modified: 1750622701469
+              isPrivate: false
+              description: ""
+              sortKey: -1750622342966
+            method: POST
+            body:
+              mimeType: application/json
+              text: |-
+                {
+                  "fileIds": [
+                   "9ba8c285-94c7-474f-8f01-d14a3dab8107",
+                    "d37241e7-3b37-4f69-bb63-d510d673cfcc"
+                  ]
+                }
+            headers:
+              - name: Content-Type
+                value: application/json
+              - name: User-Agent
+                value: insomnia/11.2.0
+            settings:
+              renderRequestBody: true
+              encodeUrl: true
+              followRedirects: global
+              cookies:
+                send: true
+                store: true
+              rebuildPath: true
+          - url: "{{ _.BASE_URL }}files/bulk-copy"
+            name: Copy bulk
+            meta:
+              id: req_9495582b03d14affa09b82da53039f89
+              created: 1750623199650
+              modified: 1750623387817
+              isPrivate: false
+              description: ""
+              sortKey: -1750623199650
+            method: POST
+            body:
+              mimeType: application/json
+              text: |-
+                {
+                	"fileIds":[
+                		"35c5f1bc-a87d-40d8-af01-13caf9488093",
+                		"7a626eab-2bb2-46af-95b1-407f99eb7431",
+                		"9b795bbc-3531-438a-908f-b7d8590d73d4"
+                	],
+                	"destinationFolderId":"ba89d1e0-c2ad-484d-bcb5-73a26b5ba830"
+                }
+            headers:
+              - name: Content-Type
+                value: application/json
+              - name: User-Agent
+                value: insomnia/11.2.0
+            settings:
+              renderRequestBody: true
+              encodeUrl: true
+              followRedirects: global
+              cookies:
+                send: true
+                store: true
+              rebuildPath: true
+          - url: "{{ _.BASE_URL }}files/bulk-move"
+            name: Move files in bulk
+            meta:
+              id: req_94081920a4cb4284836c20d1c96003bb
+              created: 1750623482113
+              modified: 1750623597653
+              isPrivate: false
+              description: ""
+              sortKey: -1750623482113
+            method: POST
+            body:
+              mimeType: application/json
+              text: |-
+                {
+                	"fileIds":[
+                		"cfe3a47c-49b9-4e47-bf2d-b221598e415a",
+                		"3bcb04d9-4d2f-402c-816a-63d58b535092",
+                		"ce5c68c7-fb05-4bda-ad9a-2e4c7729d002"
+                	],
+                	"destinationFolderId":"f1cef6d1-6ab9-41e7-8a80-36ed7f410efc"
+                }
+            headers:
+              - name: Content-Type
+                value: application/json
+              - name: User-Agent
+                value: insomnia/11.2.0
+            settings:
+              renderRequestBody: true
+              encodeUrl: true
+              followRedirects: global
+              cookies:
+                send: true
+                store: true
+              rebuildPath: true
+          - url: "{{ _.BASE_URL }}files/upload"
+            name: Upload Batch files sync
+            meta:
+              id: req_39613e11a7034e11a3e8c36a309e6bd3
+              created: 1750626158711
+              modified: 1750626175715
+              isPrivate: false
+              description: ""
+              sortKey: -1750331341554.25
+            method: POST
+            body:
+              mimeType: multipart/form-data
+              params:
+                - id: pair_f4d81b2818e9497ea9eaf866453f289a
+                  name: file
+                  value: ""
+                  description: ""
+                  disabled: false
+                  type: file
+                  fileName: /home/qbit-spark/Pictures/Screenshots/Screenshot from 2025-06-12
+                    23-33-41.png
+                - id: pair_719dda50dfba4cd6b07522077c72ae50
+                  name: folderId
+                  value: b9881672-999c-4c12-9c5e-249ef6ce3cb1
+                  description: ""
+                  disabled: false
+            headers:
+              - name: Content-Type
+                value: multipart/form-data
+              - name: User-Agent
+                value: insomnia/11.2.0
+            settings:
+              renderRequestBody: true
+              encodeUrl: true
+              followRedirects: global
+              cookies:
+                send: true
+                store: true
+              rebuildPath: true
+      - name: Folder
+        meta:
+          id: fld_1d60b7c8a1a6485aa83f6e3c8b126727
+          created: 1750331321958
+          modified: 1750331321958
+          sortKey: -1750331321958
+          description: ""
+        children:
+          - url: "{{ _.BASE_URL }}folders"
+            name: Create folder
+            meta:
+              id: req_6e84a29afe3c409c8e47225a3780decf
+              created: 1750328706994
+              modified: 1750839668429
+              isPrivate: false
+              description: ""
+              sortKey: -1750331329246
+            method: POST
+            body:
+              mimeType: application/json
+              text: |-
+                {
+                    "folderName": "Mcb",
+                    "parentFolderId": "f5594cbc-76b2-4f10-bfc1-a3f3159496cb"
+                }
+            headers:
+              - name: Content-Type
+                value: application/json
+              - name: User-Agent
+                value: insomnia/11.2.0
+            settings:
+              renderRequestBody: true
+              encodeUrl: true
+              followRedirects: global
+              cookies:
+                send: true
+                store: true
+              rebuildPath: true
+          - url: "{{ _.BASE_URL }}folders"
+            name: Get folders
+            meta:
+              id: req_f8ab6b547da04bd086a7175ad5a6ee5c
+              created: 1750329801916
+              modified: 1750331332819
+              isPrivate: false
+              description: ""
+              sortKey: -1750331329346
+            method: GET
+            headers:
+              - name: User-Agent
+                value: insomnia/11.2.0
+            settings:
+              renderRequestBody: true
+              encodeUrl: true
+              followRedirects: global
+              cookies:
+                send: true
+                store: true
+              rebuildPath: true
+          - url: "{{ _.BASE_URL }}folders/739882f9-f932-4f6e-afd3-ee031349d36d/children"
+            name: Get folder deatils
+            meta:
+              id: req_96cd27069da44b1aaf86663c5625970b
+              created: 1750329897297
+              modified: 1750618284265
+              isPrivate: false
+              description: ""
+              sortKey: -1750331329446
+            method: GET
+            headers:
+              - name: User-Agent
+                value: insomnia/11.2.0
+            settings:
+              renderRequestBody: true
+              encodeUrl: true
+              followRedirects: global
+              cookies:
+                send: true
+                store: true
+              rebuildPath: true
+          - url: "{{ _.BASE_URL
+              }}folders/206ad1f8-5501-48be-ab42-6fcebef95ac7/contents?page=0"
+            name: Get folder contents
+            meta:
+              id: req_c981969253494a86a99efb002efc84b9
+              created: 1750489223073
+              modified: 1751027576527
+              isPrivate: false
+              description: ""
+              sortKey: -1750331329396
+            method: GET
+            headers:
+              - name: User-Agent
+                value: insomnia/11.2.0
+            settings:
+              renderRequestBody: true
+              encodeUrl: true
+              followRedirects: global
+              cookies:
+                send: true
+                store: true
+              rebuildPath: true
+          - url: "{{ _.BASE_URL }}folders/root/contents"
+            name: Get root folder contents
+            meta:
+              id: req_04aaa570dda8458ea71aec7b381e4710
+              created: 1750489379489
+              modified: 1750489390483
+              isPrivate: false
+              description: ""
+              sortKey: -1750331329371
+            method: GET
+            headers:
+              - name: User-Agent
+                value: insomnia/11.2.0
+            settings:
+              renderRequestBody: true
+              encodeUrl: true
+              followRedirects: global
+              cookies:
+                send: true
+                store: true
+              rebuildPath: true
+          - url: "{{ _.BASE_URL }}folders/create-by-path"
+            name: Create folder by path
+            meta:
+              id: req_fe7f01d2620c49338e22b9e9e204cb7e
+              created: 1751027308890
+              modified: 1751027443422
+              isPrivate: false
+              description: ""
+              sortKey: -1750288317453
+            method: POST
+            body:
+              mimeType: application/json
+              text: |-
+                {
+                    "path": "documents/projects/backend/next/last",
+                    "parentFolderId": null
+                }
+            headers:
+              - name: Content-Type
+                value: application/json
+              - name: User-Agent
+                value: insomnia/11.2.0
+            settings:
+              renderRequestBody: true
+              encodeUrl: true
+              followRedirects: global
+              cookies:
+                send: true
+                store: true
+              rebuildPath: true
+          - url: "{{ _.BASE_URL }}folders/create-batch"
+            name: Create folder by batch
+            meta:
+              id: req_1d2484d847344f30a15e60dc425eeebd
+              created: 1751028374944
+              modified: 1751028462072
+              isPrivate: false
+              description: ""
+              sortKey: -1750266811556.5
+            method: POST
+            body:
+              mimeType: application/json
+              text: |-
+                {
+                    "distinctFolderNames": ["Documents", "Images", "Duplicate"],
+                    "parentFolderId": "d9aaaeaa-8b3b-47be-9e2e-c74a198cd791"
+                }
+            headers:
+              - name: Content-Type
+                value: application/json
+              - name: User-Agent
+                value: insomnia/11.2.0
+            settings:
+              renderRequestBody: true
+              encodeUrl: true
+              followRedirects: global
+              cookies:
+                send: true
+                store: true
+              rebuildPath: true
+          - url: "{{ _.BASE_URL }}folders/by-path?path=documents/projects/backend"
+            name: Get  folder contents by path
+            meta:
+              id: req_b6fb24e5e3ca4caea0798bc55822e6bf
+              created: 1751029463565
+              modified: 1751029562666
+              isPrivate: false
+              description: ""
+              sortKey: -1750277564504.75
+            method: GET
+            headers:
+              - name: User-Agent
+                value: insomnia/11.2.0
+            settings:
+              renderRequestBody: true
+              encodeUrl: true
+              followRedirects: global
+              cookies:
+                send: true
+                store: true
+              rebuildPath: true
+          - url: "{{ _.BASE_URL }}folders/create-batch-at-path"
+            name: Create Batch folders by path
+            meta:
+              id: req_f8081cf6bd2e45abb640ece0c473ad68
+              created: 1751043361056
+              modified: 1751043600990
+              isPrivate: false
+              description: ""
+              sortKey: -1750282940978.875
+            method: POST
+            body:
+              mimeType: application/json
+              text: |-
+                {
+                	"targetPath": "documents/assets",
+                	"folderNames": [
+                		"components",
+                		"pages",
+                		"utils",
+                		"assets"
+                	],
+                	"parentId": null
+                }
+            headers:
+              - name: Content-Type
+                value: application/json
+              - name: User-Agent
+                value: insomnia/11.2.0
+            settings:
+              renderRequestBody: true
+              encodeUrl: true
+              followRedirects: global
+              cookies:
+                send: true
+                store: true
+              rebuildPath: true
+      - name: Search
+        meta:
+          id: fld_2de53f19fc004a94a9b168127e069baf
+          created: 1750514943311
+          modified: 1750514943311
+          sortKey: -1750514943311
+          description: ""
+        children:
+          - url: "{{ _.BASE_URL }}files/search?q=docu&page=0&size=20"
+            name: Global search
+            meta:
+              id: req_492d4ec0da964fa7bb558ce8715ee701
+              created: 1750515863565
+              modified: 1751035175874
+              isPrivate: false
+              description: ""
+              sortKey: -1750515863565
+            method: GET
+            headers:
+              - name: User-Agent
+                value: insomnia/11.2.0
+            settings:
+              renderRequestBody: true
+              encodeUrl: true
+              followRedirects: global
+              cookies:
+                send: true
+                store: true
+              rebuildPath: true
+          - url: "{{ _.BASE_URL
+              }}files/search-in-folder?folderId=7ee2fae7-459e-46e8-b535-538f195\
+              faa95&q=scree&page=0&size=20"
+            name: Search-in-folder/Root
+            meta:
+              id: req_72994acaffb347438ab41ad25efb32cc
+              created: 1750517676598
+              modified: 1750518363977
+              isPrivate: false
+              description: >-
+                Global search: /api/v1/files/search?q=myfile - searches
+                everywhere
+
+                Folder scope search:
+                /api/v1/files/search-in-folder?folderId=123&q=myfile - searches
+                only in that folder
+
+                Root scope search: /api/v1/files/search-in-folder?q=myfile -
+                searches only in root level (no folderId)
+              sortKey: -1750507856305.5
+            method: GET
+            headers:
+              - name: User-Agent
+                value: insomnia/11.2.0
+            settings:
+              renderRequestBody: true
+              encodeUrl: true
+              followRedirects: global
+              cookies:
+                send: true
+                store: true
+              rebuildPath: true
+      - name: Usage
+        meta:
+          id: fld_05b10b2295a6474d8415f6edf86dccdb
+          created: 1750623712014
+          modified: 1750623727149
+          sortKey: -1750623712014
+          description: ""
+        children:
+          - url: "{{ _.BASE_URL }}analytics/usage-summary"
+            name: Usage-summary
+            meta:
+              id: req_54fda65aa81445f7bea5670a6de41b2e
+              created: 1750623731012
+              modified: 1750623783267
+              isPrivate: false
+              description: ""
+              sortKey: -1750623731012
+            method: GET
+            headers:
+              - name: User-Agent
+                value: insomnia/11.2.0
+            settings:
+              renderRequestBody: true
+              encodeUrl: true
+              followRedirects: global
+              cookies:
+                send: true
+                store: true
+              rebuildPath: true
+          - url: "{{ _.BASE_URL }}analytics/storage-breakdown"
+            name: Storage-breakdown
+            meta:
+              id: req_7c1aa27102fd4c94983d4a07eb5e18cc
+              created: 1750623871325
+              modified: 1750623900752
+              isPrivate: false
+              description: ""
+              sortKey: -1750623606562.5
+            method: GET
+            headers:
+              - name: User-Agent
+                value: insomnia/11.2.0
+            settings:
+              renderRequestBody: true
+              encodeUrl: true
+              followRedirects: global
+              cookies:
+                send: true
+                store: true
+              rebuildPath: true
+          - url: "{{ _.BASE_URL }}analytics/activity-summary"
+            name: Activity-summary
+            meta:
+              id: req_3068b2add39b410080228317222f2315
+              created: 1750623923940
+              modified: 1750623928840
+              isPrivate: false
+              description: ""
+              sortKey: -1750623544337.75
+            method: GET
+            headers:
+              - name: User-Agent
+                value: insomnia/11.2.0
+            settings:
+              renderRequestBody: true
+              encodeUrl: true
+              followRedirects: global
+              cookies:
+                send: true
+                store: true
+              rebuildPath: true
+          - url: "{{ _.BASE_URL }}analytics/security-overview"
+            name: Security-overview
+            meta:
+              id: req_81370196ba0f46d29dbc110d7b1f1892
+              created: 1750623969050
+              modified: 1750623977470
+              isPrivate: false
+              description: ""
+              sortKey: -1750623513225.375
+            method: GET
+            headers:
+              - name: User-Agent
+                value: insomnia/11.2.0
+            settings:
+              renderRequestBody: true
+              encodeUrl: true
+              followRedirects: global
+              cookies:
+                send: true
+                store: true
+              rebuildPath: true
+        authentication:
+          type: bearer
+          token: "{{ _.ACCESS_TOKEN }}"
+    authentication:
+      type: bearer
+      token: "{{ _.ACCESS_TOKEN }}"
+cookieJar:
+  name: Default Jar
+  meta:
+    id: jar_140ff7323ea8984a1018cfb188748cc5a3bfe22b
+    created: 1750227281546
+    modified: 1750227281546
+environments:
+  name: Base Environment
+  meta:
+    id: env_140ff7323ea8984a1018cfb188748cc5a3bfe22b
+    created: 1750227281545
+    modified: 1750839618538
+    isPrivate: false
+  data:
+    BASE_URL: localhost:8085/api/v1/
+    ACCESS_TOKEN: eyJhbGciOiJIUzM4NCJ9.eyJzdWIiOiJvZmZpY2UiLCJpYXQiOjE3NTA4Mzk1OTgsImV4cCI6MTc1MTQ0NDM5OCwidG9rZW5UeXBlIjoiQUNDRVNTIn0.PEonU-RE8DNi0Dx8xeTpSvfYdZ_xyKStchX_y-7g_jRi7ks2mlY6evO-dyqAf-S0
+    REFRESH_TOKEN: eyJhbGciOiJIUzM4NCJ9.eyJzdWIiOiJqb3NodWFzaW1vbjY1NiIsImlhdCI6MTc0ODM2MDAxNSwiZXhwIjoxNzc5ODk2MDE1LCJ0b2tlblR5cGUiOiJSRUZSRVNIIn0.3LVSxZHv2HY9LVfAVnlA7WgORRKLB4DCCms__s1kTdrqy-fK7zF9Q945EoWIxc5t
+    BASE_URL_LIVE: https://api.qbitspark.com/api/v1/
+    ACCESS_TOKEN_2: eyJhbGciOiJIUzM4NCJ9.eyJzdWIiOiJraWJ1dGkyNTUiLCJpYXQiOjE3NDk0MjUyMDEsImV4cCI6MTc1MDAzMDAwMSwidG9rZW5UeXBlIjoiQUNDRVNTIn0.V5QzYCdciUEzpAv7Tk9ydWbM2Ls2yHVnM3iQXFo9fO0QKz8lJ1IAtf9bhP9a5exS
+    ACCESS_TOKEN_3: eyJhbGciOiJIUzM4NCJ9.eyJzdWIiOiJvZmZpY2UiLCJpYXQiOjE3NDk0Mjc1ODQsImV4cCI6MTc1MDAzMjM4NCwidG9rZW5UeXBlIjoiQUNDRVNTIn0.FZQ31FyhMfxgsFWmlCyEIQSzep5t4zi-xWbDM2wTXbU7FwBWdH2VxZqhkj-2A1bF

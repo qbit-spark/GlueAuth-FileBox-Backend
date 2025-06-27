@@ -43,7 +43,6 @@ public class AccountServiceIMPL implements AccountService {
     private final EmailOTPService emailOTPService;
 
 
-
     @Override
     public AccountEntity registerAccount(CreateAccountRequest createAccountRequest) throws ItemReadyExistException, RandomExceptions, ItemNotFoundException {
 

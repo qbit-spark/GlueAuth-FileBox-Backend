@@ -3,10 +3,7 @@ package org.qbitspark.glueauthfileboxbackend.files_mng_service.controller;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.qbitspark.glueauthfileboxbackend.files_mng_service.payload.CreateFolderRequest;
-import org.qbitspark.glueauthfileboxbackend.files_mng_service.payload.CreateFolderResponse;
-import org.qbitspark.glueauthfileboxbackend.files_mng_service.payload.FolderContentsResponse;
-import org.qbitspark.glueauthfileboxbackend.files_mng_service.payload.FolderListResponse;
+import org.qbitspark.glueauthfileboxbackend.files_mng_service.payload.*;
 import org.qbitspark.glueauthfileboxbackend.files_mng_service.service.FolderService;
 import org.qbitspark.glueauthfileboxbackend.globeadvice.exceptions.ItemNotFoundException;
 import org.qbitspark.glueauthfileboxbackend.globeresponsebody.GlobeSuccessResponseBuilder;
@@ -43,6 +40,134 @@ public class FolderController {
                     GlobeSuccessResponseBuilder.success("Folder created successfully", response)
             );
     }
+
+    @PostMapping("/create-by-path")
+    public ResponseEntity<GlobeSuccessResponseBuilder> createFolderByPath(
+            @Valid @RequestBody CreateFolderByPathRequest request) throws ItemNotFoundException {
+
+        log.info("Creating folder by path: '{}' with parent: {}",
+                request.getPath(), request.getParentFolderId());
+
+            CreateFolderByPathResponse response = folderService.createFolderByPath(request);
+
+            log.info("Folder path created successfully: {} - Final folder ID: {}",
+                    response.getFullPath(), response.getFinalFolderId());
+
+            return ResponseEntity.ok(
+                    GlobeSuccessResponseBuilder.success("Folder path created successfully", response)
+            );
+
+    }
+
+    @PostMapping("/create-batch")
+    public ResponseEntity<GlobeSuccessResponseBuilder> createMultipleFolders(
+            @Valid @RequestBody BatchCreateFoldersRequest request) throws ItemNotFoundException {
+
+        log.info("Creating {} folders with parent: {}",
+                request.getDistinctFolderNames().size(), request.getParentFolderId());
+
+            BatchCreateFoldersResponse response = folderService.createMultipleFolders(request);
+
+            log.info("Batch folder creation completed - Created: {}, Existing: {}, Failed: {}",
+                    response.getSuccessfullyCreated(), response.getAlreadyExisted(), response.getFailed());
+
+            return ResponseEntity.ok(
+                    GlobeSuccessResponseBuilder.success("Batch folder creation completed", response)
+            );
+
+
+    }
+
+    /***
+     * *
+     * * Absolute path from root
+     * GET /api/v1/folders/by-path?path=Documents/Projects/Backend
+     * # Result: Root → Documents → Projects → Backend
+     *
+     * # Relative path from specific parent
+     * GET /api/v1/folders/by-path?path=Projects/Backend&parentId=f5594cbc-76b2-4f10-bfc1-a3f3159496cb
+     * # Result: Given Folder → Projects → Backend
+     *
+     * # Just folder info without contents
+     * GET /api/v1/folders/by-path?path=Documents/Projects&includeContents=false
+     *
+     * # With contents included (default)
+     * GET /api/v1/folders/by-path?path=Documents/Projects&includeContents=true
+     *
+     */
+    @GetMapping("/by-path")
+    public ResponseEntity<GlobeSuccessResponseBuilder> getFolderByPath(
+            @Valid @ModelAttribute GetFolderByPathRequest request) throws ItemNotFoundException {
+
+        log.info("Getting folder by path: '{}' with parent: {}, includeContents: {}",
+                request.getPath(), request.getParentId(), request.isIncludeContents());
+
+            GetFolderByPathResponse response = folderService.getFolderByPath(request);
+
+            log.info("Folder found by path: {} - Target folder: {}",
+                    request.getPath(), response.getTargetFolder().getName());
+
+            return ResponseEntity.ok(
+                    GlobeSuccessResponseBuilder.success("Folder retrieved successfully", response)
+            );
+
+    }
+
+    /***
+     * *
+     # Create project structure in specific location
+     POST /api/v1/folders/create-batch-at-path
+     {
+     "targetPath": "Projects/WebApp/src",
+     "folderNames": ["components", "pages", "utils", "assets"],
+     "parentId": null
+     }
+
+     # Create monthly folders in specific year
+     POST /api/v1/folders/create-batch-at-path
+     {
+     "targetPath": "Documents/Reports/2024",
+     "folderNames": ["January", "February", "March", "April"],
+     "parentId": "work-uuid"
+     }
+
+     # Organize photos by event
+     POST /api/v1/folders/create-batch-at-path
+     {
+     "targetPath": "Photos/2024/Vacation",
+     "folderNames": ["Beach", "Mountains", "City"],
+     "parentId": null
+     }
+
+
+     */
+
+    @PostMapping("/create-batch-at-path")
+    public ResponseEntity<GlobeSuccessResponseBuilder> batchCreateFoldersAtPath(
+            @Valid @RequestBody BatchCreateFoldersAtPathRequest request) throws ItemNotFoundException {
+
+        log.info("Creating {} folders at path: '{}' with parent: {}",
+                request.getFolderNames().size(), request.getTargetPath(), request.getParentId());
+
+        try {
+            BatchCreateFoldersAtPathResponse response = folderService.batchCreateFoldersAtPath(request);
+
+            log.info("Batch folder creation at path completed - Created: {}, Existing: {}, Failed: {} at location: {}",
+                    response.getBatchResults().getSuccessfullyCreated(),
+                    response.getBatchResults().getAlreadyExisted(),
+                    response.getBatchResults().getFailed(),
+                    response.getTargetLocation().getFullPath());
+
+            return ResponseEntity.ok(
+                    GlobeSuccessResponseBuilder.success("Batch folder creation at path completed", response)
+            );
+
+        } catch (Exception e) {
+            log.error("Failed to create batch folders at path '{}': {}", request.getTargetPath(), e.getMessage());
+            throw e; // Let global exception handler deal with it
+        }
+    }
+
     @GetMapping
     public ResponseEntity<GlobeSuccessResponseBuilder> getRootFolders() throws ItemNotFoundException {
 
